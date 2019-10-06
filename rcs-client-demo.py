@@ -154,7 +154,7 @@ class Arguments():
                                  dest='receiver',
                                  default="+19876543210",
                                  # action='store_true',
-                                 help='Recipient number (in MSISDN format) for SIP conversation')
+                                 help='Receiver number (in MSISDN format) for SIP conversation')
 
         self.parser.add_argument('--imei',
                                  dest='imei',
@@ -260,8 +260,8 @@ class SipHeaders():
     def set_from(self, tag = uuid.uuid4()):
         return "From: <tel:{username}>;tag={tag}\r\n".format(username = self._username, tag = tag)
 
-    def set_to(self, recipient):
-        return "To: <tel:{to}>\r\n".format(to = recipient)
+    def set_to(self, receiver):
+        return "To: <tel:{to}>\r\n".format(to = receiver)
     
     def set_via(self, branch = secrets.token_urlsafe(10), options="keep;server-keep;rport"):
         return "Via: SIP/{sip_ver}/{transport} {ip}:{port};branch={branch_prefix}{branch};{options}\r\n".format(
@@ -617,9 +617,9 @@ def args_handler(args):
     try:
         assert re.match(regex_msisdn, str(args.receiver)) is not None
     except AssertionError as ae:
-        print("No recipient provided or illegal format in the recipient provided.")
+        print("No receiver provided or illegal format in the receiver provided.")
         print("Using toy username instead.")
-        args.recipient = "+19876543210"
+        args.receiver = "+19876543210"
 
     try:
         # assert re.match(regex_imei, str(args.imei)) is not None
