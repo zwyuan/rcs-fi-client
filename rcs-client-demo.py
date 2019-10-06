@@ -186,6 +186,8 @@ class SipHeaders():
         self._authorization = "Digest"
         self._allow_methods = "INVITE, ACK, BYE, CANCEL, NOTIFY, OPTIONS, MESSAGE"
         self._p_access_network_info = "IEEE-802.11;i-wlan-node-id=000000000000"
+        self._expires = 600000
+        self._q = 0.5
 
         if transport.lower() == "tls" or transport.lower() == "tcp" or transport.lower() == "udp":
             self._transport = transport.upper()
@@ -209,7 +211,7 @@ class SipHeaders():
         self._rcs_chatbot_version_flag = "+g.gsma.rcs.botversion=\"#=0.92,#=1\""
         self._rcs_cpm_ext_support_flag = "+g.gsma.rcs.cpmext"
         self._rcs_chat_oma_simple_im_flag = "+g.oma.sip-im"
-        self._rcs_flag_weight_flag = "expires=600000;q=0.5"
+        # self._rcs_flag_weight_flag = "expires=600000;q=0.5"
 
         self._rcs_icsi_tag_standalone_messaging = "urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg,urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.largemsg,urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.deferred"
         self._rcs_icsi_tag_chat_oma_cpm = "urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.session"
@@ -220,6 +222,8 @@ class SipHeaders():
         self._rcs_icsi_tag_ipcall = "urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel"
 
         self._rcs_iari_tag_chat_oma_simple_im = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcse.im"
+        self._rcs_iari_tag_ft = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcse.ft"
+        self._rcs_iari_tag_joyn_intmsg = "urn%3Aurn-7%3A3gpp-application.ims.iari.joyn.intmsg"
         self._rcs_iari_tag_fthttp = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.fthttp"
         self._rcs_iari_tag_ftsms = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.ftsms"
         self._rcs_iari_tag_geopush = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.geopush"
@@ -229,26 +233,26 @@ class SipHeaders():
         self._rcs_iari_tag_plugin_support = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.plugin"
 
         if capability == "simple-im|chat|geopush|fthttp|chatbot":
-            return "{};{}=\"{},{},{},{}\";{};{}".format(
+            return "{};{}=\"{},{},{},{}\";{}".format(
                 self._rcs_chat_oma_simple_im_flag,
                 self._rcs_iari_flag_prefix,
                 self._rcs_iari_tag_chat_oma_simple_im,
                 self._rcs_iari_tag_geopush,
                 self._rcs_iari_tag_fthttp,
                 self._rcs_iari_tag_chatbot,
-                self._rcs_chatbot_version_flag,
-                self._rcs_flag_weight_flag
+                self._rcs_chatbot_version_flag
                 )
-        else: # [TODO] Zengwen: change to other real values
-            return "{};{}=\"{},{},{},{}\";{};{}".format(
+        else: # used in capability definition in OPTIONS header
+            return "{};{}=\"{},{},{},{},{},{}\";{}".format(
                 self._rcs_chat_oma_simple_im_flag,
                 self._rcs_iari_flag_prefix,
                 self._rcs_iari_tag_chat_oma_simple_im,
+                self._rcs_iari_tag_ft,
                 self._rcs_iari_tag_geopush,
+                self._rcs_iari_tag_joyn_intmsg,
                 self._rcs_iari_tag_fthttp,
                 self._rcs_iari_tag_chatbot,
-                self._rcs_chatbot_version_flag,
-                self._rcs_flag_weight_flag
+                self._rcs_chatbot_version_flag
                 )
 
     def set_call_id(self, call_id):
@@ -263,8 +267,8 @@ class SipHeaders():
     def set_to(self, receiver):
         return "To: <tel:{to}>\r\n".format(to = receiver)
     
-    def set_via(self, branch = secrets.token_urlsafe(10), options="keep;server-keep;rport"):
-        return "Via: SIP/{sip_ver}/{transport} {ip}:{port};branch={branch_prefix}{branch};{options}\r\n".format(
+    def set_via(self, branch = secrets.token_urlsafe(10), options=";keep;server-keep;rport"):
+        return "Via: SIP/{sip_ver}/{transport} {ip}:{port};branch={branch_prefix}{branch}{options}\r\n".format(
             sip_ver = self._sip_ver,
             transport = self._transport,
             ip = self._ip,
@@ -277,7 +281,23 @@ class SipHeaders():
     def set_max_forwards(self):
         return "Max-Forwards: {max_forwards}\r\n".format(max_forwards = self._max_forwards)
 
+    def set_accept_contact(self, capability="customized"):
+        return "Accept-Contact: *;{feature_tags};explicit\r\n".format(feature_tags = self._build_sip_flags(capability))
+
     def set_contact(self, capability="simple-im|chat|geopush|fthttp|chatbot"):
+        self._sip_instance_tag = "+sip.instance=\"<urn:gsma:imei:{imei}>\"".format(imei = self._imei)
+        return "Contact: <sip:{username}@{ip}:{port};transport={transport}>;{identity};{feature_tags};expires={expires};q={q}\r\n".format(
+            username = self._username,
+            ip = self._ip,
+            port = self._port,
+            transport = self._transport.lower(),
+            identity = self._sip_instance_tag,
+            feature_tags = self._build_sip_flags(capability),
+            expires = self._expires,
+            q = self._q
+            )
+
+    def set_options_contact(self, capability="customized"):
         self._sip_instance_tag = "+sip.instance=\"<urn:gsma:imei:{imei}>\"".format(imei = self._imei)
         return "Contact: <sip:{username}@{ip}:{port};transport={transport}>;{identity};{feature_tags}\r\n".format(
             username = self._username,
@@ -288,8 +308,14 @@ class SipHeaders():
             feature_tags = self._build_sip_flags(capability)
             )
 
+    def set_accept(self):
+        return "Accept: application/sdp\r\n"
+
     def set_supported(self):
         return "Supported: {supported}\r\n".format(supported = self._supported)
+
+    def set_route(self, route_lst):
+        return "Route: <{route}>\r\n".format(route = ">,<".join(route_lst))
 
     def set_p_preferred_identity(self):
         return "P-Preferred-Identity: tel:{username}\r\n".format(username = self._username)
@@ -321,6 +347,7 @@ class SipMessages():
     def __init__(self, username, password, realm, ip, receiver, p_cscf_addr, imei):
         self.username = username
         self.password = password
+        self.receiver = receiver
         self.realm = realm
         self.uri = "sip:{}".format(self.realm)
         self.ip = ip
@@ -337,6 +364,7 @@ class SipMessages():
         self.path = ""
         self.path_tag = ""
         self.p_associated_uri = ""
+        self.route_lst = []
 
     def register(self, seq, call_id):
         reg_str = "REGISTER sip:{realm} SIP/2.0\r\n".format(realm = self.realm)
@@ -357,6 +385,27 @@ class SipMessages():
                             + self.headers.set_content_length(0)
         return reg_msg
 
+    def options(self, seq, call_id):
+        options_str = "OPTIONS tel:{receiver} SIP/2.0\r\n".format(receiver = self.receiver)
+        options_msg = options_str + self.headers.set_call_id(call_id) \
+                            + self.headers.set_c_seq(seq, "OPTIONS") \
+                            + self.headers.set_from(secrets.token_urlsafe(10)) \
+                            + self.headers.set_to(self.receiver) \
+                            + self.headers.set_via(secrets.token_urlsafe(10), "") \
+                            + self.headers.set_max_forwards() \
+                            + self.headers.set_accept_contact() \
+                            + self.headers.set_options_contact() \
+                            + self.headers.set_accept() \
+                            + self.headers.set_route(self.route_lst) \
+                            + self.headers.set_p_preferred_identity() \
+                            + self.headers.set_user_agent() \
+                            + self.headers.set_allow() \
+                            + self.headers.set_x_google_event_id() \
+                            + self.headers.set_p_access_network_info() \
+                            + self.headers.set_content_length(0)
+        return options_msg
+
+
     def calculate_response(self):
         self.response = Utils.calc_sip_digest_auth(self.username, self.realm, self.password, self.uri, self.nonce)
 
@@ -367,8 +416,8 @@ class SipMessages():
         if len(msg_split) > 1:
             msg_body = msg_split[1]
 
-        print("[debug]", "Split message header:\n\n{}\n".format(msg_header))
-        print("[debug]", "Split message body:\n\n{}\n".format(msg_body))
+        # print("[debug]", "Split message header:\n\n{}\n".format(msg_header))
+        # print("[debug]", "Split message body:\n\n{}\n".format(msg_body))
 
         msg_header_lst = msg_header.split("\r\n")
         print("[debug]", "Found {} lines in total in the message header received.".format(len(msg_header_lst)))
@@ -389,28 +438,6 @@ class SipMessages():
     def status_hdlr_200(self, msg_header_lst):
         print("[debug]", "Entering status_hdlr_200()")
         for l in msg_header_lst:
-            # print("[header line]: {}".format(l))
-            if l.startswith("Via"):
-                self.header_parser_via(l)
-            elif l.startswith("To"):
-                self.header_parser_to(l)
-            elif l.startswith("From"):
-                self.header_parser_from(l)
-            elif l.startswith("Call-ID"):
-                self.header_parser_call_id(l)
-            elif l.startswith("CSeq"):
-                self.header_parser_c_seq(l)
-            elif l.startswith("WWW-Authenticate"):
-                self.header_parser_www_auth(l)
-            elif l.startswith("X-Google-Event-Id"):
-                self.header_parser_x_google_event_id(l)
-            elif l.startswith("Content-Length"):
-                self.header_parser_content_length(l)
-
-    def status_hdlr_401(self, msg_header_lst):
-        print("[debug]", "Entering status_hdlr_401()")
-        for l in msg_header_lst:
-            # print("[header line]: {}".format(l))
             if l.startswith("Via"):
                 self.header_parser_via(l)
             elif l.startswith("Path"):
@@ -429,6 +456,27 @@ class SipMessages():
                 self.header_parser_c_seq(l)
             elif l.startswith("P-Associated-URI"):
                 self.header_parser_p_associated_uri(l)
+            elif l.startswith("X-Google-Event-Id"):
+                self.header_parser_x_google_event_id(l)
+            elif l.startswith("Content-Length"):
+                self.header_parser_content_length(l)
+
+
+    def status_hdlr_401(self, msg_header_lst):
+        print("[debug]", "Entering status_hdlr_401()")
+        for l in msg_header_lst:
+            if l.startswith("Via"):
+                self.header_parser_via(l)
+            elif l.startswith("To"):
+                self.header_parser_to(l)
+            elif l.startswith("From"):
+                self.header_parser_from(l)
+            elif l.startswith("Call-ID"):
+                self.header_parser_call_id(l)
+            elif l.startswith("CSeq"):
+                self.header_parser_c_seq(l)
+            elif l.startswith("WWW-Authenticate"):
+                self.header_parser_www_auth(l)
             elif l.startswith("X-Google-Event-Id"):
                 self.header_parser_x_google_event_id(l)
             elif l.startswith("Content-Length"):
@@ -581,11 +629,10 @@ def main(args):
             print("|                   expecting a SIP 200 OK response                    |")
             print("========================================================================\n")
 
-            rcs_messages.message_parser(google_fi_register_2_resp.decode())
-
-            regex_sip_route = r"Service-Route:\s+(.*)$"
-            sip_route_ret = Utils.find_all_occurrence(regex_sip_route, google_fi_register_2_resp)
-            route = ",".join(r for r in sip_route_ret)
+            # rcs_messages.message_parser(google_fi_register_2_resp.decode())
+            conversation_call_id = uuid.uuid4()
+            google_fi_options_1_req = rcs_messages.options(1, conversation_call_id)
+            print("Sending:\n\n{}\n".format(google_fi_options_1_req))
 
         else:
             print("========================================================================")
