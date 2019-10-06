@@ -336,6 +336,7 @@ class SipMessages():
         self.server_nonce = False
         self.path = ""
         self.path_tag = ""
+        self.p_associated_uri = ""
 
     def register(self, seq, call_id):
         reg_str = "REGISTER sip:{realm} SIP/2.0\r\n".format(realm = self.realm)
@@ -412,6 +413,12 @@ class SipMessages():
             # print("[header line]: {}".format(l))
             if l.startswith("Via"):
                 self.header_parser_via(l)
+            elif l.startswith("Path"):
+                self.header_parser_path(l)
+            elif l.startswith("Service-Route"):
+                self.header_parser_service_route(l)
+            elif l.startswith("Contact"):
+                self.header_parser_contact(l)
             elif l.startswith("To"):
                 self.header_parser_to(l)
             elif l.startswith("From"):
@@ -420,8 +427,8 @@ class SipMessages():
                 self.header_parser_call_id(l)
             elif l.startswith("CSeq"):
                 self.header_parser_c_seq(l)
-            elif l.startswith("WWW-Authenticate"):
-                self.header_parser_www_auth(l)
+            elif l.startswith("P-Associated-URI"):
+                self.header_parser_p_associated_uri(l)
             elif l.startswith("X-Google-Event-Id"):
                 self.header_parser_x_google_event_id(l)
             elif l.startswith("Content-Length"):
@@ -444,12 +451,19 @@ class SipMessages():
         pass
 
     def header_parser_path(self, message):
-        self.path = Utils.find_1st_occurrence(r"^<(.*);", message)
+        self.path = Utils.find_1st_occurrence(r"^<(.*)>", message)
         self.path_tag = Utils.find_1st_occurrence(r"^;(.*)>", message)
+        self.route_lst.append("{path};transport={transport}".format(path = self.path, transport = "tls"))
         print("[debug]", self.path)
         print("[debug]", self.path_tag)
+        print("[debug]", self.route_lst)
 
     def header_parser_service_route(self, message):
+        self.route_lst.append(Utils.find_1st_occurrence(r"^<(.*)>", message))
+        print("[debug]", self.route_lst)
+
+    def header_parser_contact(self, message):
+        print("[debug]", "Accepted contact info at server:\n", message)
         pass
 
     def header_parser_to(self, message):
@@ -463,6 +477,10 @@ class SipMessages():
 
     def header_parser_c_seq(self, message):
         pass
+
+    def header_parser_p_associated_uri(self, message):
+        self.p_associated_uri = Utils.find_1st_occurrence(r"^<(.*)>", message)
+        print(self.p_associated_uri)
 
     def header_parser_www_auth(self, message):
         self.nonce = Utils.find_1st_occurrence(r"nonce=\"(.*?)\",", message)
