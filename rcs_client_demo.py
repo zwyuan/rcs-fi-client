@@ -499,7 +499,7 @@ class SipMessages():
         logging.debug(self.route_lst)
 
     def header_parser_contact(self, message):
-        logging.debug("Accepted contact info at server:\n", message)
+        logging.debug("Accepted contact info at server: {}\n".format(message))
 
     def header_parser_to(self, message):
         pass
@@ -602,15 +602,19 @@ def main(args):
             google_fi_register_2_req = rcs_messages.register(2, reg_call_id)
             logging.info("Sending:\n\n{}\n".format(google_fi_register_2_req))
 
-            # send message (encoded into bytes) through socket
-            # wrappedSocket.send(google_fi_register_2_req.encode())
+            if not args.sim_mode:
+                # send message (encoded into bytes) through socket
+                wrappedSocket.send(google_fi_register_2_req.encode())
 
-            # # receive server's response
-            # google_fi_register_2_resp = wrappedSocket.recv(65535)
-            # print("Received:\n\n{}\n".format(google_fi_register_2_resp.decode()))
+                # receive server's response
+                google_fi_register_2_resp = wrappedSocket.recv(65535)
+                logging.info("Received:\n\n{}\n".format(google_fi_register_2_resp.decode()))
 
-            # # parse received message
-            # rcs_messages.message_parser(google_fi_register_2_resp.decode())
+            else:
+                google_fi_register_2_resp = CONST.GOOGLE_FI_REGISTER_2_RESP.encode()
+
+            # parse received message
+            rcs_messages.message_parser(google_fi_register_2_resp.decode())
 
 
             # Step 3. send options
@@ -623,6 +627,21 @@ def main(args):
             conversation_call_id = uuid.uuid4()
             google_fi_options_1_req = rcs_messages.options(1, conversation_call_id)
             logging.info("Sending:\n\n{}\n".format(google_fi_options_1_req))
+
+            if not args.sim_mode:
+                # send message (encoded into bytes) through socket
+                wrappedSocket.send(google_fi_options_1_req.encode())
+
+                # receive server's response
+                google_fi_options_1_resp = wrappedSocket.recv(65535)
+                logging.info("Received:\n\n{}\n".format(google_fi_options_1_resp.decode()))
+
+            else:
+                google_fi_options_1_resp = CONST.GOOGLE_FI_OPTIONS_1_RESP.encode()
+
+            # parse received message
+            rcs_messages.message_parser(google_fi_options_1_resp.decode())
+
 
         else:
             logging.warning("========================================================================")
