@@ -4,9 +4,13 @@
 Constants.py
 """
 
+# Use python logging library for better logging control
+import logging
+LOG_FMT       = '[%(levelname)s] %(message)s'
+LOG_LEVEL     = logging.DEBUG
+
 # Switch for using simulation mode or not
-SIM_MODE = False
-DEBUG = True
+SIM_MODE      = False
 
 # Simulation mode
 DEMO_USERNAME = "+11234567890"
@@ -69,7 +73,7 @@ Call-ID: 77e6d3e3-8cd0-4c26-9757-2884868d30e0
 CSeq: 1 REGISTER
 WWW-Authenticate: Digest nonce="vsyANogTcKZZsZm74VPB+Q==",algorithm=MD5,realm="us.pfi.rcs.telephony.goog"
 X-Google-Event-Id: LWN52OIABWCDECWNKBEJICJCPA======
-Content-Length: 0
+Content-Length: 0\n\n
 """.replace("\n", "\r\n")
 
 

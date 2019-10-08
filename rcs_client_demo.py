@@ -3,6 +3,7 @@ import ssl
 import sys
 import uuid
 import socket
+import logging
 import hashlib
 import secrets
 import requests
@@ -11,6 +12,7 @@ from argparse import ArgumentParser
 
 import rcs_client_constants as CONST
 
+logging.basicConfig(stream=sys.stderr, level=CONST.LOG_LEVEL, format=CONST.LOG_FMT)
 sslkeylog.set_keylog("sslkeylog-rcs-tls.txt")
 
 class Utils():
@@ -67,14 +69,14 @@ class Arguments():
         if not self.sim_mode:
 
             if self.realm == CONST.SIM_RCS_REALM:
-                print("[warning]", "No SIP realm provided, using default Fi RCS realm.")
+                logging.warning("No SIP realm provided, using default Fi RCS realm.")
                 self.realm = CONST.FI_RCS_REALM
 
             try:
                 assert re.match(CONST.REGEX_MSISDN, str(self.username)) is not None
             except AssertionError as ae:
-                print("[warning]", "No username provided or illegal format in the username provided.")
-                print("[warning]", "Using default username instead.")
+                logging.warning("No username provided or illegal format in the username provided.")
+                logging.warning("Using default username instead.")
                 self.username = CONST.DEMO_USERNAME
 
             if not self.password:
@@ -88,13 +90,13 @@ class Arguments():
             try:
                 assert re.match(CONST.REGEX_MSISDN, str(self.receiver)) is not None
             except AssertionError as ae:
-                print("[warning]", "No receiver provided or illegal format in the receiver provided.")
-                print("[warning]", "Using default reciver's MSISDN instead.")
+                logging.warning("No receiver provided or illegal format in the receiver provided.")
+                logging.warning("Using default reciver's MSISDN instead.")
                 self.receiver = CONST.DEMO_RECEIVER
 
         else:
             if not self.password:
-                print("[warning]", "No password provided, using default demo password.")
+                logging.warning("No password provided, using default demo password.")
                 self.password = CONST.DEMO_SIP_PWD
 
     def add_arguments(self):
@@ -403,12 +405,12 @@ class SipMessages():
         if len(msg_split) > 1:
             msg_body = msg_split[1]
 
-        # print("[debug]", "Split message header:\n\n{}\n".format(msg_header))
-        # print("[debug]", "Split message body:\n\n{}\n".format(msg_body))
+        logging.debug("Split message header:\n\n{}\n".format(msg_header))
+        logging.debug("Split message body:\n\n{}\n".format(msg_body))
 
         msg_header_lst = msg_header.split("\r\n")
-        print("[debug]", "Found {} lines in total in the message header received.".format(len(msg_header_lst)))
-        print("[debug]", "First line in message header:\n{}".format(msg_header_lst[0]))
+        logging.debug("Found {} lines in total in the message header received.".format(len(msg_header_lst)))
+        logging.debug("First line in message header:\n{}".format(msg_header_lst[0]))
 
         if (msg_header_lst[0].startswith("SIP/")):
             try:
@@ -418,12 +420,12 @@ class SipMessages():
                 # print(self.status_code_hldr[str(status_code)])
                 self.status_code_hldr[msg_header_lst[0].split(" ")[1]](msg_header_lst) # handle 200, 401, 511 SIP response
             except Exception as e:
-                print(e)
+                logging.error(e)
                 self.status_code_hldr['default']() # handle other cases
 
 
     def status_hdlr_200(self, msg_header_lst):
-        print("[debug]", "Entering status_hdlr_200()")
+        logging.debug("Entering status_hdlr_200()")
         for l in msg_header_lst:
             if l.startswith("Via"):
                 self.header_parser_via(l)
@@ -450,7 +452,7 @@ class SipMessages():
 
 
     def status_hdlr_401(self, msg_header_lst):
-        print("[debug]", "Entering status_hdlr_401()")
+        logging.debug("Entering status_hdlr_401()")
         for l in msg_header_lst:
             if l.startswith("Via"):
                 self.header_parser_via(l)
@@ -471,35 +473,33 @@ class SipMessages():
 
 
     def status_hdlr_511(self, msg_header_lst):
-        print("[debug]", "Entering status_hdlr_511()")
+        logging.debug("Entering status_hdlr_511()")
         pass
 
     def status_hdlr_default(self, msg_header_lst):
-        print("[debug]", "Entering status_hdlr_default()")
+        logging.debug("Entering status_hdlr_default()")
         pass
 
     def header_parser_via(self, message):
         self.rport = Utils.find_1st_occurrence(r"rport=(\d+);", message)
         self.received_ip = Utils.find_1st_occurrence(r"received=(.*)$", message)
-        print("[debug]", self.rport)
-        print("[debug]", self.received_ip)
-        pass
+        logging.debug(self.rport)
+        logging.debug(self.received_ip)
 
     def header_parser_path(self, message):
         self.path = Utils.find_1st_occurrence(r"^<(.*)>", message)
         self.path_tag = Utils.find_1st_occurrence(r"^;(.*)>", message)
         self.route_lst.append("{path};transport={transport}".format(path = self.path, transport = "tls"))
-        print("[debug]", self.path)
-        print("[debug]", self.path_tag)
-        print("[debug]", self.route_lst)
+        logging.debug(self.path)
+        logging.debug(self.path_tag)
+        logging.debug(self.route_lst)
 
     def header_parser_service_route(self, message):
         self.route_lst.append(Utils.find_1st_occurrence(r"^<(.*)>", message))
-        print("[debug]", self.route_lst)
+        logging.debug(self.route_lst)
 
     def header_parser_contact(self, message):
-        print("[debug]", "Accepted contact info at server:\n", message)
-        pass
+        logging.debug("Accepted contact info at server:\n", message)
 
     def header_parser_to(self, message):
         pass
@@ -515,11 +515,11 @@ class SipMessages():
 
     def header_parser_p_associated_uri(self, message):
         self.p_associated_uri = Utils.find_1st_occurrence(r"^<(.*)>", message)
-        print(self.p_associated_uri)
+        logging.debug(self.p_associated_uri)
 
     def header_parser_www_auth(self, message):
         self.nonce = Utils.find_1st_occurrence(r"nonce=\"(.*?)\",", message)
-        print(self.nonce)
+        logging.debug(self.nonce)
         self.server_nonce = True
 
     def header_parser_x_google_event_id(self, message):
@@ -531,9 +531,9 @@ class SipMessages():
 
 def main(args):
 
-    print("========================================================================")
-    print("|                    Connecting to RCS ACS server ...                  |")
-    print("========================================================================\n")
+    logging.info("========================================================================")
+    logging.info("|                    Connecting to RCS ACS server ...                  |")
+    logging.info("========================================================================\n")
 
     try:
         # CREATE SOCKET
@@ -546,34 +546,34 @@ def main(args):
         # CONNECT AND PRINT REPLY
         try:
             wrappedSocket.connect((args.realm, args.port))
-            print("========================================================================")
-            print("|       Connected to RCS ACS server at {}       |".format(args.realm))
-            print("========================================================================\n")
+            logging.info("========================================================================")
+            logging.info("|       Connected to RCS ACS server at {}       |".format(args.realm))
+            logging.info("========================================================================\n")
         except:
-            print("========================================================================")
-            print("|             Error: Cannot connect to given RCS ACS server!           |")
-            print("========================================================================\n")
+            logging.info("========================================================================")
+            logging.info("|             Error: Cannot connect to given RCS ACS server!           |")
+            logging.info("========================================================================\n")
 
             # Regardless of what happened, try to gracefully close down the socket.
             # CLOSE SOCKET CONNECTION
             wrappedSocket.close()
             exit(-1)
 
-        print("========================================================================")
-        print("|                        Preparing SIP Messages ...                    |")
-        print("========================================================================\n")
+        logging.info("========================================================================")
+        logging.info("|                        Preparing SIP Messages ...                    |")
+        logging.info("========================================================================\n")
         my_ip = Utils.get_ip_address_from_socket(wrappedSocket)
         rcs_messages = SipMessages(args.username, args.password, args.realm, my_ip, args.receiver, args.realm, args.imei)
 
         # Step 1. Send a SIP REGISTER message and get 401 Unauthorized response
-        print("========================================================================")
-        print("|                  Sending a SIP REGISTER message and                  |")
-        print("|                 expecting a 401 Unauthorized response                |")
-        print("========================================================================\n")
+        logging.info("========================================================================")
+        logging.info("|                  Sending a SIP REGISTER message and                  |")
+        logging.info("|                 expecting a 401 Unauthorized response                |")
+        logging.info("========================================================================\n")
         # google_fi_register_1_req  = rcs_messages.register(1, "23099613-21b1-4565-902f-0001f4b4b99d", "", "")
         reg_call_id = uuid.uuid4()
         google_fi_register_1_req = rcs_messages.register(1, reg_call_id)
-        print("Sending:\n\n{}\n".format(google_fi_register_1_req))
+        logging.info("Sending:\n\n{}\n".format(google_fi_register_1_req))
 
         if not args.sim_mode:
             # send message (encoded into bytes) through socket
@@ -581,7 +581,7 @@ def main(args):
 
             # receive server's response
             google_fi_register_1_resp = wrappedSocket.recv(65535)
-            print("Received:\n\n{}\n".format(google_fi_register_1_resp.decode()))
+            logging.info("Received:\n\n{}\n".format(google_fi_register_1_resp.decode()))
         else:
             google_fi_register_1_resp = CONST.GOOGLE_FI_REGISTER_1_RESP.encode()
 
@@ -593,14 +593,14 @@ def main(args):
             rcs_messages.calculate_response()
 
             # Step 2. Send authenticated register message
-            print("========================================================================")
-            print("|                Sending the 2nd SIP REGISTER message                  |")
-            print("|                 with response calculated from nonce                  |")
-            print("========================================================================\n")
-            print("Formating 2nd REGISTER with nonce and response")
+            logging.info("========================================================================")
+            logging.info("|                Sending the 2nd SIP REGISTER message                  |")
+            logging.info("|                 with response calculated from nonce                  |")
+            logging.info("========================================================================\n")
+            logging.info("Formating 2nd REGISTER with nonce and response")
 
             google_fi_register_2_req = rcs_messages.register(2, reg_call_id)
-            print("Sending:\n\n{}\n".format(google_fi_register_2_req))
+            logging.info("Sending:\n\n{}\n".format(google_fi_register_2_req))
 
             # send message (encoded into bytes) through socket
             # wrappedSocket.send(google_fi_register_2_req.encode())
@@ -614,20 +614,20 @@ def main(args):
 
 
             # Step 3. send options
-            print("========================================================================")
-            print("|                  Sending a SIP OPTIONS message and                   |")
-            print("|                   expecting a SIP 200 OK response                    |")
-            print("========================================================================\n")
+            logging.info("========================================================================")
+            logging.info("|                  Sending a SIP OPTIONS message and                   |")
+            logging.info("|                   expecting a SIP 200 OK response                    |")
+            logging.info("========================================================================\n")
 
             # rcs_messages.message_parser(google_fi_register_2_resp.decode())
             conversation_call_id = uuid.uuid4()
             google_fi_options_1_req = rcs_messages.options(1, conversation_call_id)
-            print("Sending:\n\n{}\n".format(google_fi_options_1_req))
+            logging.info("Sending:\n\n{}\n".format(google_fi_options_1_req))
 
         else:
-            print("========================================================================")
-            print("|            Error: No valid nonce found in the response!              |")
-            print("========================================================================\n")
+            logging.warning("========================================================================")
+            logging.warning("|            Error: No valid nonce found in the response!              |")
+            logging.warning("========================================================================\n")
             exit(-2)
 
     except UnboundLocalError:
@@ -638,14 +638,13 @@ def main(args):
 if __name__ == '__main__':
     try:
         args = Arguments()
-        if CONST.DEBUG:
-            print(args.port)
-            print(args.realm)
-            print(args.username)
-            print(args.password)
-            print(args.receiver)
-            print(args.imei)
-            print(args.sim_mode)
+        logging.debug(args.port)
+        logging.debug(args.realm)
+        logging.debug(args.username)
+        logging.debug(args.password)
+        logging.debug(args.receiver)
+        logging.debug(args.imei)
+        logging.debug(args.sim_mode)
 
     except ArgumentsException as e:
         sys.stderr.write("\nERROR: " + str(e) + ".  Use '-h' for info.\n")
