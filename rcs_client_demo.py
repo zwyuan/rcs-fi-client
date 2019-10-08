@@ -1,5 +1,6 @@
 import re
 import ssl
+import sys
 import uuid
 import socket
 import hashlib
@@ -11,23 +12,6 @@ from argparse import ArgumentParser
 import rcs_client_constants as CONST
 
 sslkeylog.set_keylog("sslkeylog-rcs-tls.txt")
-
-SIM_MODE = True
-
-uri = "sip:us.pfi.rcs.telephony.goog"
-realm = "us.pfi.rcs.telephony.goog"
-
-HOST = "us.pfi.rcs.telephony.goog" if not SIM_MODE else "google.com"
-PORT = 443
-
-user_agent = "IM-client/OMA1.0 Google/Pixel_2-9 Google/c24v0v014-27.0"
-rand_tag = secrets.token_urlsafe(10)
-rand_branch = secrets.token_urlsafe(17)
-
-host = "acs-hov.jibe.google.com"
-accept_encoding = "gzip"
-connection = "Keep-Alive"
-req_url = "https://acs-hov.jibe.google.com/"
 
 class Utils():
     def __init__(self):
@@ -71,7 +55,7 @@ class Arguments():
         self.parser = ArgumentParser()
         self.add_arguments()
         self.parse_args()
-        # self.validate()
+        self.validate()
 
     def parse_args(self):
         # Parse the supplied arguments and map each one to an attribute on
@@ -80,33 +64,44 @@ class Arguments():
             setattr(self, k, v)
 
     def validate(self):
-        pass
-    #     if self.tcp and self.udp:
-    #         raise ArgumentsException("Please specify only one of TCP or UDP")
+        if not self.sim_mode:
 
-    #     if not self.input_file:
-    #         raise ArgumentsException("Please specify an input file with '-f'")
+            if self.realm == CONST.SIM_RCS_REALM:
+                print("[warning]", "No SIP realm provided, using default Fi RCS realm.")
+                self.realm = CONST.FI_RCS_REALM
 
-    #     if not self.dest_addr:
-    #         raise ArgumentsException("Please specify a destination with '-d'")
+            try:
+                assert re.match(CONST.REGEX_MSISDN, str(self.username)) is not None
+            except AssertionError as ae:
+                print("[warning]", "No username provided or illegal format in the username provided.")
+                print("[warning]", "Using default username instead.")
+                self.username = CONST.DEMO_USERNAME
+
+            if not self.password:
+                raise ArgumentsException("In non-sim mode, please specify the user's password with '-p'")
+            else:
+                try:
+                    assert re.match(CONST.REGEX_SIP_PASSWORD, str(self.password)) is not None
+                except AssertionError as ae:
+                    raise ArgumentsException("Illegal character or wrong length in the password provided!")
+
+            try:
+                assert re.match(CONST.REGEX_MSISDN, str(self.receiver)) is not None
+            except AssertionError as ae:
+                print("[warning]", "No receiver provided or illegal format in the receiver provided.")
+                print("[warning]", "Using default reciver's MSISDN instead.")
+                self.receiver = CONST.DEMO_RECEIVER
+
+        else:
+            if not self.password:
+                print("[warning]", "No password provided, using default demo password.")
+                self.password = CONST.DEMO_SIP_PWD
 
     def add_arguments(self):
-        # self.parser.add_argument('-f',
-        #                          '--input_file',
-        #                          dest='input_file',
-        #                          default=None,
-        #                          help='*Required - Input file')
-        # self.parser.add_argument('-r',
-        #                          '--reg',
-        #                          dest='register',
-        #                          action='store_true',
-        #                          default=False,
-        #                          help='Register for OTP')
-
         self.parser.add_argument('-u',
                                  '--username',
                                  dest='username',
-                                 default="+11234567890",
+                                 default=CONST.DEMO_USERNAME,
                                  # action='store_true',
                                  help='Username (in MSISDN format) for SIP')
 
@@ -117,18 +112,25 @@ class Arguments():
                                  # action='store_true',
                                  help='Auth Password for SIP')
 
+        self.parser.add_argument('-P',
+                                 '--port',
+                                 dest='port',
+                                 default=CONST.FI_RCS_PORT,
+                                 help='TCP port to use on SIP connection')
+
         self.parser.add_argument('-r',
                                  '--receiver',
                                  dest='receiver',
-                                 default="+19876543210",
+                                 default=CONST.DEMO_RECEIVER,
                                  # action='store_true',
                                  help='Receiver number (in MSISDN format) for SIP conversation')
 
-        self.parser.add_argument('--imei',
-                                 dest='imei',
-                                 default="12345678-12345-0",
+        self.parser.add_argument('-s',
+                                 '--realm',
+                                 dest='realm',
+                                 default=CONST.SIM_RCS_REALM,
                                  # action='store_true',
-                                 help='IMEI of the device')
+                                 help='SIP realm to register on')
 
         self.parser.add_argument('-t',
                                  '--transport',
@@ -137,10 +139,22 @@ class Arguments():
                                  # action='store_true',
                                  help='Transport protocol to use for SIP')
 
+        self.parser.add_argument('--imei',
+                                 dest='imei',
+                                 default=CONST.DEMO_IMEI,
+                                 # action='store_true',
+                                 help='IMEI of the device')
+
+        self.parser.add_argument('--sim',
+                                 dest='sim_mode',
+                                 action='store_true',
+                                 default=False,
+                                 help='Use simulation mode (use pre-recorded responses instead of communicating with real server)')
+
 
 class SipHeaders():
 
-    def __init__(self, ip, username, receiver, p_cscf_addr, imei, port=20000, sip_ver=2, transport="tls", max_forwards=70, supported="path,gruu", branch_prefix="z9hG4bK", user_agent="IM-client/OMA1.0 Google/Pixel_2-9 Google/c24v0v014-27.0"):
+    def __init__(self, ip, username, receiver, p_cscf_addr, imei, port=20000, sip_ver=2, transport="tls", max_forwards=70, supported="path,gruu", branch_prefix="z9hG4bK", user_agent=CONST.DEMO_RCS_UA):
         self._ip = ip
         self._port = port
         self._username = username
@@ -531,9 +545,9 @@ def main(args):
 
         # CONNECT AND PRINT REPLY
         try:
-            wrappedSocket.connect((HOST, PORT))
+            wrappedSocket.connect((args.realm, args.port))
             print("========================================================================")
-            print("|       Connected to RCS ACS server at {}       |".format(HOST))
+            print("|       Connected to RCS ACS server at {}       |".format(args.realm))
             print("========================================================================\n")
         except:
             print("========================================================================")
@@ -549,7 +563,7 @@ def main(args):
         print("|                        Preparing SIP Messages ...                    |")
         print("========================================================================\n")
         my_ip = Utils.get_ip_address_from_socket(wrappedSocket)
-        rcs_messages = SipMessages(args.username, args.password, realm, my_ip, args.receiver, realm, args.imei)
+        rcs_messages = SipMessages(args.username, args.password, args.realm, my_ip, args.receiver, args.realm, args.imei)
 
         # Step 1. Send a SIP REGISTER message and get 401 Unauthorized response
         print("========================================================================")
@@ -559,14 +573,17 @@ def main(args):
         # google_fi_register_1_req  = rcs_messages.register(1, "23099613-21b1-4565-902f-0001f4b4b99d", "", "")
         reg_call_id = uuid.uuid4()
         google_fi_register_1_req = rcs_messages.register(1, reg_call_id)
-
-        # send message (encoded into bytes) through socket
-        wrappedSocket.send(google_fi_register_1_req.encode())
         print("Sending:\n\n{}\n".format(google_fi_register_1_req))
 
-        # receive server's response
-        google_fi_register_1_resp = wrappedSocket.recv(65535)
-        print("Received:\n\n{}\n".format(google_fi_register_1_resp.decode()))
+        if not args.sim_mode:
+            # send message (encoded into bytes) through socket
+            wrappedSocket.send(google_fi_register_1_req.encode())
+
+            # receive server's response
+            google_fi_register_1_resp = wrappedSocket.recv(65535)
+            print("Received:\n\n{}\n".format(google_fi_register_1_resp.decode()))
+        else:
+            google_fi_register_1_resp = CONST.GOOGLE_FI_REGISTER_1_RESP.encode()
 
         # parse received message
         rcs_messages.message_parser(google_fi_register_1_resp.decode())
@@ -618,44 +635,17 @@ def main(args):
         pass
 
 
-
-def args_handler(args):
-    try:
-        assert re.match(r"^[a-zA-Z0-9_-]{32}$", str(args.password)) is not None
-    except AssertionError as ae:
-        print("Illegal character or wrong length in the password provided!")
-        print("Using toy password instead.")
-        args.password = "H6GdpXDZSC7pg7zOMBgspQjxyWmghI4k"
-
-    try:
-        assert re.match(CONST.REGEX_MSISDN, str(args.username)) is not None
-    except AssertionError as ae:
-        print("No username provided or illegal format in the username provided.")
-        print("Using toy username instead.")
-        args.username = "+11234567890"
-
-    try:
-        assert re.match(CONST.REGEX_MSISDN, str(args.receiver)) is not None
-    except AssertionError as ae:
-        print("No receiver provided or illegal format in the receiver provided.")
-        print("Using toy username instead.")
-        args.receiver = "+19876543210"
-
-    try:
-        # assert re.match(regex_imei, str(args.imei)) is not None
-        assert str(args.imei) is not ""
-    except AssertionError as ae:
-        print("No username provided or illegal format in the username provided.")
-        print("Using toy username instead.")
-        args.imei = "12345678-12345-0"
-
-
-
 if __name__ == '__main__':
     try:
         args = Arguments()
-        args_handler(args)
-        print(args.password)
+        if CONST.DEBUG:
+            print(args.port)
+            print(args.realm)
+            print(args.username)
+            print(args.password)
+            print(args.receiver)
+            print(args.imei)
+            print(args.sim_mode)
 
     except ArgumentsException as e:
         sys.stderr.write("\nERROR: " + str(e) + ".  Use '-h' for info.\n")
