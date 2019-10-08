@@ -8,15 +8,16 @@ import requests
 import sslkeylog
 from argparse import ArgumentParser
 
+import rcs_client_constants as CONST
+
 sslkeylog.set_keylog("sslkeylog-rcs-tls.txt")
 
-regex_msisdn = r"^\+(9[976]\d|8[987530]\d|6[987]\d|5[90]\d|42\d|3[875]\d|2[98654321]\d|9[8543210]|8[6421]|6[6543210]|5[87654321]|4[987654310]|3[9643210]|2[70]|7|1)\d{1,14}$"
-
+SIM_MODE = True
 
 uri = "sip:us.pfi.rcs.telephony.goog"
 realm = "us.pfi.rcs.telephony.goog"
 
-HOST = "us.pfi.rcs.telephony.goog"
+HOST = "us.pfi.rcs.telephony.goog" if not SIM_MODE else "google.com"
 PORT = 443
 
 user_agent = "IM-client/OMA1.0 Google/Pixel_2-9 Google/c24v0v014-27.0"
@@ -27,39 +28,6 @@ host = "acs-hov.jibe.google.com"
 accept_encoding = "gzip"
 connection = "Keep-Alive"
 req_url = "https://acs-hov.jibe.google.com/"
-
-BLACKBIRD_FULLY_INTEGRATED_MESSAGING_CAPABILITY = "urn%3Aurn-7%3A3gpp-application.ims.iari.joyn.intmsg"
-CPM_MSG = "urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.msg"
-CPM_SESSION = "urn%3Aurn-7%3A3gpp-service.ims.icsi.oma.cpm.session"
-JIBE_STICKERS_CAPABILITY = "+g.jibe.stickers"
-MMTEL_VOICECALLING_CAPABILITY = "urn%3Aurn-7%3A3gpp-service.ims.icsi.mmtel"
-RBM_BOT_VERSION_PAYMENTS_V1 = "#=1.1"
-RBM_BOT_VERSION_RICH_CARD = "#=0.91"
-RBM_BOT_VERSION_RICH_CARD_CAROUSELS = "#=0.92"
-RBM_BOT_VERSION_UP2 = "#=1"
-RCSE_CAPABILITY_PRESENCE_CAPABILITY = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcse.dp"
-RCSE_FILETRANSFER_CAPABILITY = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcse.ft"
-RCSE_IMAGE_SHARE_CAPABILITY = "urn%3Aurn-7%3A3gpp-application.ims.iari.gsma-is"
-RCSE_SOCIAL_PRESENCE_CAPABILITY = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcse.sp"
-RCSE_VIDEO_SHARE_CAPABILITY = "+g.3gpp.cs-voice"
-RCS_FILETRANSFER_THUMBNAIL_CAPABILITY = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.ftthumb"
-RCS_FILE_TRANSFER_VIA_SMS_CAPABILITY = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.ftsms"
-RCS_GROUP_CHAT_CAPABILITY = "isfocus"
-RCS_IPCALLING_CAPABILITY = "+g.gsma.rcs.ipcall"
-RCS_LOCATION_PULL_CAPABILITY = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.geopull"
-RCS_LOCATION_PULL_FT_CAPABILITY = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.geopullft"
-RCS_LOCATION_PUSH_CAPABILITY = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.geopush"
-RCS_LOCATION_VIA_SMS_CAPABILITY = "urn%3Aurn-7%3A3gppapplication.ims.iari.rcs.geosms"
-RCS_MESSAGE_REVOKE_CAPABILITY = "+g.gsma.rcs.msgrevoke"
-RCS_POST_CALL_CAPABILITY = "urn%3Aurn-7%3A3gpp-service.ims.icsi.gsma.callunanswered"
-RCS_RBM_BOT_CAPABILITY = "+g.gsma.rcs.isbot"
-RCS_RBM_CAPABILITY = "urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.chatbot"
-RCS_SHARED_MAP_CAPABILITY = "urn%3Aurn-7%3A3gpp-service.ims.icsi.gsma.sharedmap"
-RCS_SHARED_SKETCH_CAPABILITY = "urn%3Aurn-7%3A3gpp-service.ims.icsi.gsma.sharedsketch"
-RCS_VIDEOCALLINGONLY_CAPABILITY = "+g.gsma.rcs.ipvideocallonly"
-# RBM_BOT_THREE_VERSIONS_TAG_FORMAT = "+g.gsma.rcs.botversion=\"%s,%s,%s\""
-# RBM_BOT_TWO_VERSIONS_TAG_FORMAT = "+g.gsma.rcs.botversion=\"%s,%s\""
-
 
 class Utils():
     def __init__(self):
@@ -181,6 +149,11 @@ class SipHeaders():
         self._imei = imei
         self._user_agent = user_agent
         self._max_forwards = max_forwards
+        # [TODO] Zengwen: the tag and branch are actually somehow correlated
+        # Needs further update
+        # the RFC 3261 says: "The combination of the To tag, From tag, 
+        # and Call-ID completely defines a peer-to-peer SIP relationship
+        # between Alice and Bob and is referred to as a dialog.""
         self._branch_prefix = branch_prefix
         self._supported = supported
         self._authorization = "Digest"
@@ -586,10 +559,10 @@ def main(args):
         # google_fi_register_1_req  = rcs_messages.register(1, "23099613-21b1-4565-902f-0001f4b4b99d", "", "")
         reg_call_id = uuid.uuid4()
         google_fi_register_1_req = rcs_messages.register(1, reg_call_id)
-        print("Sending:\n\n{}\n".format(google_fi_register_1_req))
 
         # send message (encoded into bytes) through socket
         wrappedSocket.send(google_fi_register_1_req.encode())
+        print("Sending:\n\n{}\n".format(google_fi_register_1_req))
 
         # receive server's response
         google_fi_register_1_resp = wrappedSocket.recv(65535)
@@ -655,14 +628,14 @@ def args_handler(args):
         args.password = "H6GdpXDZSC7pg7zOMBgspQjxyWmghI4k"
 
     try:
-        assert re.match(regex_msisdn, str(args.username)) is not None
+        assert re.match(CONST.REGEX_MSISDN, str(args.username)) is not None
     except AssertionError as ae:
         print("No username provided or illegal format in the username provided.")
         print("Using toy username instead.")
         args.username = "+11234567890"
 
     try:
-        assert re.match(regex_msisdn, str(args.receiver)) is not None
+        assert re.match(CONST.REGEX_MSISDN, str(args.receiver)) is not None
     except AssertionError as ae:
         print("No receiver provided or illegal format in the receiver provided.")
         print("Using toy username instead.")
