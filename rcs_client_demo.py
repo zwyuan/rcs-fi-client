@@ -272,10 +272,10 @@ class SipHeaders():
     def set_from(self, tag = uuid.uuid4()):
         return "From: <tel:{username}>;tag={tag}\r\n".format(username = self._username, tag = tag)
 
-    def set_to(self, receiver):
-        return "To: <tel:{to}>\r\n".format(to = receiver)
+    def set_to(self, receiver, tag = ""):
+        return "To: <tel:{to}>{tag}\r\n".format(to = receiver, tag = tag)
     
-    def set_via(self, branch = secrets.token_urlsafe(10), options=";keep;server-keep;rport"):
+    def set_via(self, branch = secrets.token_urlsafe(10)[:10], options=";keep;server-keep;rport"):
         return "Via: SIP/{sip_ver}/{transport} {ip}:{port};branch={branch_prefix}{branch}{options}\r\n".format(
             sip_ver = self._sip_ver,
             transport = self._transport,
@@ -319,9 +319,9 @@ class SipHeaders():
             feature_tags = self._build_sip_flags(capability)
             )
 
-    def set_contact_invite(self, feature_tags="+g.oma.sip-im"):
+    def set_contact_invite(self, feature_tags=";+g.oma.sip-im"):
         self._sip_instance_tag = "+sip.instance=\"<urn:gsma:imei:{imei}>\"".format(imei = self._imei)
-        return "Contact: <sip:{username}@{ip}:{port};transport={transport}>;{identity};{feature_tags}\r\n".format(
+        return "Contact: <sip:{username}@{ip}:{port};transport={transport}>;{identity}{feature_tags}\r\n".format(
             username = self._username,
             ip = self._ip,
             port = self._port,
@@ -343,7 +343,7 @@ class SipHeaders():
         return "Content-Type: {val}\r\n".format(val = c_type)
 
     def set_contribution_id(self, contrib_id):
-        return "Contribution=ID: {val}\r\n".format(val = contrib_id)
+        return "Contribution-ID: {val}\r\n".format(val = contrib_id)
 
     def set_route(self, route_lst):
         return "Route: <{route}>\r\n".format(route = ">,<".join(route_lst))
@@ -397,14 +397,19 @@ class SipMessages():
         self.path_tag = ""
         self.p_associated_uri = ""
         self.route_lst = []
+        self.call_id = ""
+        self.contact_ack_route = ""
+        self.record_route_lst = []
+        self.to_tag = ""
+        self.from_tag = ""
 
     def register(self, seq, call_id):
         reg_str = "REGISTER sip:{realm} SIP/2.0\r\n".format(realm = self.realm)
         reg_msg = reg_str   + self.headers.set_call_id(call_id) \
                             + self.headers.set_c_seq(seq, "REGISTER") \
-                            + self.headers.set_from(secrets.token_urlsafe(10)[:10]) \
+                            + self.headers.set_from("{tag}".format(tag = secrets.token_urlsafe(10)[:10] if seq == 1 else self.from_tag)) \
                             + self.headers.set_to(self.username) \
-                            + self.headers.set_via() \
+                            + self.headers.set_via(secrets.token_urlsafe(10)[:10]) \
                             + self.headers.set_max_forwards() \
                             + self.headers.set_contact() \
                             + self.headers.set_supported("path,gruu") \
@@ -465,8 +470,26 @@ class SipMessages():
                     + self.headers.set_content_length(len(invite_body)) \
                     + "\r\n" \
                     + "{invite_body}\r\n".format(invite_body = invite_body)
-        log.info("Composed INVITE message is:\n\n{}\n".format(invite_msg))
+        log.debug("Composed INVITE message is:\n\n{}\n".format(invite_msg))
         return invite_msg
+
+    def ack(self, seq):
+        ack_str  = "ACK {contact_ack_route} SIP/2.0\r\n".format(contact_ack_route = self.contact_ack_route)
+        ack_msg  = ack_str + self.headers.set_call_id(self.call_id) \
+                    + self.headers.set_c_seq(seq, "ACK") \
+                    + self.headers.set_from(self.from_tag) \
+                    + self.headers.set_to(self.receiver, ";tag={}".format(self.to_tag)) \
+                    + self.headers.set_via(secrets.token_urlsafe(10)[:10], "") \
+                    + self.headers.set_max_forwards() \
+                    + self.headers.set_route(self.record_route_lst) \
+                    + self.headers.set_contact_invite("") \
+                    + self.headers.set_user_agent() \
+                    + self.headers.set_allow() \
+                    + self.headers.set_x_google_event_id() \
+                    + self.headers.set_content_length(0)
+
+        log.debug("Composed ACK message is:\n\n{}\n".format(ack_msg))
+        return ack_msg
 
     def compose_invite_body(self, my_ip, boundary="bS5DQx0W7AA"):
         return "--{boundary}\r\n".format(boundary = boundary) \
@@ -584,6 +607,8 @@ class SipMessages():
                 self.header_parser_path(l)
             elif l.startswith("Service-Route"):
                 self.header_parser_service_route(l)
+            elif l.startswith("Record-Route"):
+                self.header_parser_record_route(l)
             elif l.startswith("Contact"):
                 self.header_parser_contact(l)
             elif l.startswith("To"):
@@ -592,6 +617,8 @@ class SipMessages():
                 self.header_parser_from(l)
             elif l.startswith("Call-ID"):
                 self.header_parser_call_id(l)
+            elif l.startswith("Contact"):
+                self.header_parser_contact(l)
             elif l.startswith("CSeq"):
                 self.header_parser_c_seq(l)
             elif l.startswith("P-Associated-URI"):
@@ -641,28 +668,39 @@ class SipMessages():
         log.debug(self.received_ip)
 
     def header_parser_path(self, message):
-        self.path = Utils.find_1st_occurrence(r"^<(.*)>", message)
-        self.path_tag = Utils.find_1st_occurrence(r"^;(.*)>", message)
+        self.path = Utils.find_1st_occurrence(r"<(.*)>", message)
+        self.path_tag = Utils.find_1st_occurrence(r";(.*)>", message)
         self.route_lst.append("{path};transport={transport}".format(path = self.path, transport = "tls"))
         log.debug(self.path)
         log.debug(self.path_tag)
         log.debug(self.route_lst)
 
+    def header_parser_record_route(self, message):
+        # log.debug("Processing found record route:\n\n{}\n".format(message))
+        self.record_route_lst.append(Utils.find_1st_occurrence(r"<(.*)>", message))
+        log.debug(self.record_route_lst)
+
     def header_parser_service_route(self, message):
-        self.route_lst.append(Utils.find_1st_occurrence(r"^<(.*)>", message))
+        # log.debug("Processing found service route:\n\n{}\n".format(message))
+        self.route_lst.append(Utils.find_1st_occurrence(r"<(.*)>", message))
         log.debug(self.route_lst)
 
     def header_parser_contact(self, message):
         log.debug("Accepted contact info at server: {}\n".format(message))
 
     def header_parser_to(self, message):
-        pass
+        self.to_tag = Utils.find_1st_occurrence(r"tag=(.*)$", message)
 
     def header_parser_from(self, message):
-        pass
+        self.from_tag = Utils.find_1st_occurrence(r"tag=(.*)$", message)
 
     def header_parser_call_id(self, message):
-        pass
+        self.call_id = Utils.find_1st_occurrence(r"Call-ID:\s(.*?)$", message)
+        log.debug(self.call_id)
+
+    def header_parser_contact(self, message):
+        self.contact_ack_route = Utils.find_1st_occurrence(r"<(.*?)>", message)
+        log.debug(self.contact_ack_route)
 
     def header_parser_c_seq(self, message):
         pass
@@ -827,6 +865,22 @@ def main(args):
                 rcs_messages.message_parser(google_fi_invite_1_resp.decode())
 
 
+                # expecting a 200 OK message
+                if rcs_messages.status_code == 200:
+                    # Step 5. send SIP ACK
+                    log.info("========================================================================")
+                    log.info("|                        Received SIP 200 OK and                       |")
+                    log.info("|                       sending a SIP ACK message                      |")
+                    log.info("========================================================================\n")
+
+                    google_fi_ack_1_req = rcs_messages.ack(1)
+                    log.info("Sending:\n\n{}\n".format(google_fi_ack_1_req))
+
+                    if not args.sim_mode:
+                        # send message (encoded into bytes) through socket
+                        wrappedSocket.send(google_fi_ack_1_req.encode())
+
+                    # do not expect further Ack on ack
             else:
                 log.warning("========================================================================")
                 log.warning("|                     Error: SIP {} received!                    |".format(rcs_messages.status_code))

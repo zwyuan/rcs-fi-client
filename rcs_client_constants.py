@@ -28,6 +28,7 @@ FI_RCS_PORT   = 443
 # Regex patterns
 REGEX_SIP_PASSWORD = r"^[a-zA-Z0-9_-]{32}$"
 REGEX_MSISDN = r"^\+(9[976]\d|8[987530]\d|6[987]\d|5[90]\d|42\d|3[875]\d|2[98654321]\d|9[8543210]|8[6421]|6[6543210]|5[87654321]|4[987654310]|3[9643210]|2[70]|7|1)\d{1,14}$"
+REGEX_UUID_V4 = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 
 
 # RCS feature tags and capability
