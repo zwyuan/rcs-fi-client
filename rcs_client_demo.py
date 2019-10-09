@@ -117,6 +117,14 @@ class Arguments():
             if not self.password:
                 log.warning("No password provided, using default demo password.")
                 self.password = CONST.DEMO_SIP_PWD
+            else:
+                try:
+                    assert re.match(CONST.REGEX_SIP_PASSWORD, str(self.password)) is not None
+                except AssertionError as ae:
+                    log.warning("Illegal character or wrong format in the password provided!")
+                    log.warning("Using default demo password: {pwd}".format(pwd = CONST.DEMO_SIP_PWD))
+                    self.password = CONST.DEMO_SIP_PWD
+
 
     def add_arguments(self):
         self.parser.add_argument('-u',
