@@ -2,18 +2,31 @@ import re
 import ssl
 import sys
 import uuid
+import time
 import socket
 import logging
 import hashlib
 import secrets
+import datetime
 import requests
 import sslkeylog
 from argparse import ArgumentParser
+from colorlog import ColoredFormatter
 
 import rcs_client_constants as CONST
 
-logging.basicConfig(stream=sys.stderr, level=CONST.LOG_LEVEL, format=CONST.LOG_FMT)
 sslkeylog.set_keylog("sslkeylog-rcs-tls.txt")
+
+# log.basicConfig(stream=sys.stderr, level=CONST.LOG_LEVEL, format=CONST.LOG_FMT)
+
+logging.root.setLevel(CONST.LOG_LEVEL)
+formatter = ColoredFormatter(CONST.LOG_FMT)
+stream = logging.StreamHandler()
+stream.setLevel(CONST.LOG_LEVEL)
+stream.setFormatter(formatter)
+log = logging.getLogger('pythonConfig')
+log.setLevel(CONST.LOG_LEVEL)
+log.addHandler(stream)
 
 class Utils():
     def __init__(self):
@@ -48,6 +61,12 @@ class Utils():
         return hashlib.md5("{}:{}:{}".format(str1,nonce,str2).encode('utf-8')).hexdigest()
 
 
+    @staticmethod
+    def time_since_1900_sec():
+        epoch_time_sec = 2208988800
+        return int(time.time()) + epoch_time_sec
+
+
 class ArgumentsException(Exception):
     pass
 
@@ -69,14 +88,14 @@ class Arguments():
         if not self.sim_mode:
 
             if self.realm == CONST.SIM_RCS_REALM:
-                logging.warning("No SIP realm provided, using default Fi RCS realm.")
+                log.warning("No SIP realm provided, using default Fi RCS realm.")
                 self.realm = CONST.FI_RCS_REALM
 
             try:
                 assert re.match(CONST.REGEX_MSISDN, str(self.username)) is not None
             except AssertionError as ae:
-                logging.warning("No username provided or illegal format in the username provided.")
-                logging.warning("Using default username instead.")
+                log.warning("No username provided or illegal format in the username provided.")
+                log.warning("Using default username instead.")
                 self.username = CONST.DEMO_USERNAME
 
             if not self.password:
@@ -90,13 +109,13 @@ class Arguments():
             try:
                 assert re.match(CONST.REGEX_MSISDN, str(self.receiver)) is not None
             except AssertionError as ae:
-                logging.warning("No receiver provided or illegal format in the receiver provided.")
-                logging.warning("Using default reciver's MSISDN instead.")
+                log.warning("No receiver provided or illegal format in the receiver provided.")
+                log.warning("Using default reciver's MSISDN instead.")
                 self.receiver = CONST.DEMO_RECEIVER
 
         else:
             if not self.password:
-                logging.warning("No password provided, using default demo password.")
+                log.warning("No password provided, using default demo password.")
                 self.password = CONST.DEMO_SIP_PWD
 
     def add_arguments(self):
@@ -156,7 +175,7 @@ class Arguments():
 
 class SipHeaders():
 
-    def __init__(self, ip, username, receiver, p_cscf_addr, imei, port=20000, sip_ver=2, transport="tls", max_forwards=70, supported="path,gruu", branch_prefix="z9hG4bK", user_agent=CONST.DEMO_RCS_UA):
+    def __init__(self, ip, username, receiver, p_cscf_addr, imei, port=20000, sip_ver=2, transport="tls", max_forwards=70, branch_prefix="z9hG4bK", user_agent=CONST.DEMO_RCS_UA):
         self._ip = ip
         self._port = port
         self._username = username
@@ -171,7 +190,7 @@ class SipHeaders():
         # and Call-ID completely defines a peer-to-peer SIP relationship
         # between Alice and Bob and is referred to as a dialog.""
         self._branch_prefix = branch_prefix
-        self._supported = supported
+        # self._supported = supported
         self._authorization = "Digest"
         self._allow_methods = "INVITE, ACK, BYE, CANCEL, NOTIFY, OPTIONS, MESSAGE"
         self._p_access_network_info = "IEEE-802.11;i-wlan-node-id=000000000000"
@@ -273,6 +292,9 @@ class SipHeaders():
     def set_accept_contact(self, capability="customized"):
         return "Accept-Contact: *;{feature_tags};explicit\r\n".format(feature_tags = self._build_sip_flags(capability))
 
+    def set_accept_contact_invite(self, accept_contact):
+        return "Accept-Contact: *;{accept_contact}\r\n".format(accept_contact = accept_contact)
+
     def set_contact(self, capability="simple-im|chat|geopush|fthttp|chatbot"):
         self._sip_instance_tag = "+sip.instance=\"<urn:gsma:imei:{imei}>\"".format(imei = self._imei)
         return "Contact: <sip:{username}@{ip}:{port};transport={transport}>;{identity};{feature_tags};expires={expires};q={q}\r\n".format(
@@ -286,7 +308,7 @@ class SipHeaders():
             q = self._q
             )
 
-    def set_options_contact(self, capability="customized"):
+    def set_contact_options(self, capability="customized"):
         self._sip_instance_tag = "+sip.instance=\"<urn:gsma:imei:{imei}>\"".format(imei = self._imei)
         return "Contact: <sip:{username}@{ip}:{port};transport={transport}>;{identity};{feature_tags}\r\n".format(
             username = self._username,
@@ -297,11 +319,31 @@ class SipHeaders():
             feature_tags = self._build_sip_flags(capability)
             )
 
+    def set_contact_invite(self, feature_tags="+g.oma.sip-im"):
+        self._sip_instance_tag = "+sip.instance=\"<urn:gsma:imei:{imei}>\"".format(imei = self._imei)
+        return "Contact: <sip:{username}@{ip}:{port};transport={transport}>;{identity};{feature_tags}\r\n".format(
+            username = self._username,
+            ip = self._ip,
+            port = self._port,
+            transport = self._transport.lower(),
+            identity = self._sip_instance_tag,
+            feature_tags = feature_tags
+            )
+
     def set_accept(self):
         return "Accept: application/sdp\r\n"
 
-    def set_supported(self):
-        return "Supported: {supported}\r\n".format(supported = self._supported)
+    def set_supported(self, supported):
+        return "Supported: {supported}\r\n".format(supported = supported)
+
+    def set_session_expires(self, field):
+        return "Session-Expires: {val}\r\n".format(val = field)
+
+    def set_content_type(self, c_type):
+        return "Content-Type: {val}\r\n".format(val = c_type)
+
+    def set_contribution_id(self, contrib_id):
+        return "Contribution=ID: {val}\r\n".format(val = contrib_id)
 
     def set_route(self, route_lst):
         return "Route: <{route}>\r\n".format(route = ">,<".join(route_lst))
@@ -330,7 +372,7 @@ class SipHeaders():
         return "P-Access-Network-Info: {p_access_network_info}\r\n".format(p_access_network_info = self._p_access_network_info)
 
     def set_content_length(self, len=0):
-        return "Content-Length: {content_len}\r\n\r\n".format(content_len=len)
+        return "Content-Length: {content_len}\r\n".format(content_len=len)
 
 class SipMessages():
     def __init__(self, username, password, realm, ip, receiver, p_cscf_addr, imei):
@@ -341,6 +383,7 @@ class SipMessages():
         self.uri = "sip:{}".format(self.realm)
         self.ip = ip
         self.headers = SipHeaders(ip, username, receiver, p_cscf_addr, imei)
+        self.status_code = 0
         self.status_code_hldr = {   '401' : self.status_hdlr_401,
                                     '200' : self.status_hdlr_200,
                                     '511' : self.status_hdlr_511,
@@ -359,31 +402,32 @@ class SipMessages():
         reg_str = "REGISTER sip:{realm} SIP/2.0\r\n".format(realm = self.realm)
         reg_msg = reg_str   + self.headers.set_call_id(call_id) \
                             + self.headers.set_c_seq(seq, "REGISTER") \
-                            + self.headers.set_from(secrets.token_urlsafe(10)) \
+                            + self.headers.set_from(secrets.token_urlsafe(10)[:10]) \
                             + self.headers.set_to(self.username) \
                             + self.headers.set_via() \
                             + self.headers.set_max_forwards() \
                             + self.headers.set_contact() \
-                            + self.headers.set_supported() \
+                            + self.headers.set_supported("path,gruu") \
                             + self.headers.set_p_preferred_identity() \
                             + self.headers.set_user_agent() \
                             + self.headers.set_allow() \
                             + self.headers.set_authorization(self.nonce, self.response) \
                             + self.headers.set_x_google_event_id() \
                             + self.headers.set_p_access_network_info() \
-                            + self.headers.set_content_length(0)
+                            + self.headers.set_content_length(0) \
+                            + "\r\n"
         return reg_msg
 
     def options(self, seq, call_id):
         options_str = "OPTIONS tel:{receiver} SIP/2.0\r\n".format(receiver = self.receiver)
         options_msg = options_str + self.headers.set_call_id(call_id) \
                             + self.headers.set_c_seq(seq, "OPTIONS") \
-                            + self.headers.set_from(secrets.token_urlsafe(10)) \
+                            + self.headers.set_from(secrets.token_urlsafe(10)[:10]) \
                             + self.headers.set_to(self.receiver) \
-                            + self.headers.set_via(secrets.token_urlsafe(10), "") \
+                            + self.headers.set_via(secrets.token_urlsafe(10)[:10], "") \
                             + self.headers.set_max_forwards() \
                             + self.headers.set_accept_contact() \
-                            + self.headers.set_options_contact() \
+                            + self.headers.set_contact_options() \
                             + self.headers.set_accept() \
                             + self.headers.set_route(self.route_lst) \
                             + self.headers.set_p_preferred_identity() \
@@ -391,8 +435,114 @@ class SipMessages():
                             + self.headers.set_allow() \
                             + self.headers.set_x_google_event_id() \
                             + self.headers.set_p_access_network_info() \
-                            + self.headers.set_content_length(0)
+                            + self.headers.set_content_length(0) \
+                            + "\r\n"
         return options_msg
+
+    def invite(self, seq, call_id, my_ip):
+        boundary    = secrets.token_urlsafe(11)[:11]
+        contrib_id  = secrets.token_hex(32)[:32]
+        invite_body = self.compose_invite_body(my_ip, boundary)
+        invite_str  = "INVITE tel:{receiver} SIP/2.0\r\n".format(receiver = self.receiver)
+        invite_msg  = invite_str + self.headers.set_call_id(call_id) \
+                    + self.headers.set_c_seq(seq, "INVITE") \
+                    + self.headers.set_from(secrets.token_urlsafe(10)[:10]) \
+                    + self.headers.set_to(self.receiver) \
+                    + self.headers.set_via(secrets.token_urlsafe(10)[:10], ";keep") \
+                    + self.headers.set_max_forwards() \
+                    + self.headers.set_contact_invite() \
+                    + self.headers.set_route(self.route_lst) \
+                    + self.headers.set_p_preferred_identity() \
+                    + self.headers.set_user_agent() \
+                    + self.headers.set_allow() \
+                    + self.headers.set_supported("timer") \
+                    + self.headers.set_session_expires("1800;refresher=uac") \
+                    + self.headers.set_content_type("multipart/mixed;boundary={}".format(boundary)) \
+                    + self.headers.set_contribution_id(contrib_id) \
+                    + self.headers.set_accept_contact_invite("+g.oma.sip-im") \
+                    + self.headers.set_x_google_event_id() \
+                    + self.headers.set_p_access_network_info() \
+                    + self.headers.set_content_length(len(invite_body)) \
+                    + "\r\n" \
+                    + "{invite_body}\r\n".format(invite_body = invite_body)
+        log.info("Composed INVITE message is:\n\n{}\n".format(invite_msg))
+        return invite_msg
+
+    def compose_invite_body(self, my_ip, boundary="bS5DQx0W7AA"):
+        return "--{boundary}\r\n".format(boundary = boundary) \
+                    + "{sdp_msg}\r\n".format(sdp_msg = self.compose_sdp_msg(my_ip)) \
+                    + "--{boundary}\r\n".format(boundary = boundary) \
+                    + "{cpim_msg}\r\n".format(cpim_msg = self.compose_cpim_msg()) \
+                    + "--{boundary}--\r\n".format(boundary = boundary)
+
+    def compose_rcs_body(self, rcs_type, content):
+        if rcs_type == "text":
+            return content
+        else:
+            return ""
+
+    def compose_rcs_msg(self, rcs_type, content):
+        rcs_body = self.compose_rcs_body(rcs_type, content)
+        if rcs_type == "text":
+            rcs_msg = "Content-Length: {length}\r\n".format(length = len(rcs_body)) \
+                    + "Content-Type: text/plain; charset=utf-8\r\n" \
+                    + "\r\n" \
+                    + rcs_body
+        else:
+            rcs_msg = "Content-Length: {length}\r\n".format(length = 12) \
+                    + "Content-Type: text/plain; charset=utf-8\r\n" \
+                    + "\r\n" \
+                    + "Hello World!"
+        log.debug("Composed RCS message is:\n\n{}\n".format(rcs_msg))
+        return rcs_msg
+
+    def compose_imdn_msg(self):
+        imdn_msg_id = secrets.token_urlsafe(24)[:24]
+        rcs_msg     = self.compose_rcs_msg("text", "Ok")
+        imdn_msg    = "NS: imdn <urn:ietf:params:imdn>\r\n" \
+                    + "imdn.Disposition-Notification: positive-delivery, display\r\n" \
+                    + "imdn.Message-ID: {msg_id}\r\n".format(msg_id = imdn_msg_id) \
+                    + "To: <sip:anonymous@anonymous.invalid>\r\n" \
+                    + "From: <sip:anonymous@anonymous.invalid>\r\n" \
+                    + "DateTime: {time}\r\n".format(time = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z') \
+                    + "\r\n" \
+                    + rcs_msg
+        log.debug("Composed IMDN message is:\n\n{}\n".format(imdn_msg))
+        return imdn_msg
+
+    def compose_cpim_msg(self):
+        imdn_msg = self.compose_imdn_msg()
+        cpim_msg = "Content-Type: message/cpim\r\n" \
+                    + "Content-Length: {length}\r\n".format(length = len(imdn_msg)) \
+                    + "\r\n" \
+                    + imdn_msg
+        log.debug("Composed IMDN message is:\n\n{}\n".format(cpim_msg))
+        return cpim_msg
+
+    def compose_sdp_body(self, my_ip):
+        sdp_body = "v=0\r\n" \
+                + "o={username} {time} {time} IN IP4 {ip}\r\n".format(username = self.username, time = Utils.time_since_1900_sec(), ip = my_ip) \
+                + "s=-\r\n" \
+                + "c=IN IP4 {ip}\r\n".format(ip = my_ip) \
+                + "t=0 0\r\n" \
+                + "m=message 9 TCP/TLS/MSRP *\r\n" \
+                + "a=path:msrps://{ip}:9/{token};tcp\r\n".format(ip = my_ip, token = secrets.token_hex(32)[:32]) \
+                + "a=fingerprint:SHA-1 {fingerprint}\r\n".format(fingerprint = "76:7C:2B:DA:26:8F:CB:25:D6:98:C3:EE:09:66:88:84:C7:BB:82:38") \
+                + "a=connection:new\r\n" \
+                + "a=setup:active\r\n" \
+                + "a=accept-types:{accept_types}\r\n".format(accept_types = "message/cpim application/im-iscomposing+xml") \
+                + "a=accept-wrapped-types:{accept_wrapped_types}\r\n".format(accept_wrapped_types = "text/plain application/vnd.gsma.rcs-ft-http+xml message/imdn+xml application/vnd.gsma.rcspushlocation+xml") \
+                + "a=sendrecv\r\n"
+        return sdp_body
+
+    def compose_sdp_msg(self, my_ip):
+        sdp_body = self.compose_sdp_body(my_ip)
+        sdp_msg  = self.headers.set_content_type("application/sdp") \
+                 + self.headers.set_content_length(len(sdp_body)) \
+                 + "\r\n" \
+                 + sdp_body
+        log.debug("Composed SDP message is:\n\n{}\n".format(sdp_msg))
+        return sdp_msg
 
 
     def calculate_response(self):
@@ -405,12 +555,12 @@ class SipMessages():
         if len(msg_split) > 1:
             msg_body = msg_split[1]
 
-        logging.debug("Split message header:\n\n{}\n".format(msg_header))
-        logging.debug("Split message body:\n\n{}\n".format(msg_body))
+        log.debug("Split message header:\n\n{}\n".format(msg_header))
+        log.debug("Split message body:\n\n{}\n".format(msg_body))
 
         msg_header_lst = msg_header.split("\r\n")
-        logging.debug("Found {} lines in total in the message header received.".format(len(msg_header_lst)))
-        logging.debug("First line in message header:\n{}".format(msg_header_lst[0]))
+        log.debug("Found {} lines in total in the message header received.".format(len(msg_header_lst)))
+        log.debug("First line in message header:\n{}".format(msg_header_lst[0]))
 
         if (msg_header_lst[0].startswith("SIP/")):
             try:
@@ -420,12 +570,13 @@ class SipMessages():
                 # print(self.status_code_hldr[str(status_code)])
                 self.status_code_hldr[msg_header_lst[0].split(" ")[1]](msg_header_lst) # handle 200, 401, 511 SIP response
             except Exception as e:
-                logging.error(e)
+                log.error(e)
                 self.status_code_hldr['default']() # handle other cases
 
 
     def status_hdlr_200(self, msg_header_lst):
-        logging.debug("Entering status_hdlr_200()")
+        log.debug("Entering status_hdlr_200()")
+        self.status_code = 200
         for l in msg_header_lst:
             if l.startswith("Via"):
                 self.header_parser_via(l)
@@ -452,7 +603,8 @@ class SipMessages():
 
 
     def status_hdlr_401(self, msg_header_lst):
-        logging.debug("Entering status_hdlr_401()")
+        log.debug("Entering status_hdlr_401()")
+        self.status_code = 401
         for l in msg_header_lst:
             if l.startswith("Via"):
                 self.header_parser_via(l)
@@ -473,33 +625,35 @@ class SipMessages():
 
 
     def status_hdlr_511(self, msg_header_lst):
-        logging.debug("Entering status_hdlr_511()")
+        log.debug("Entering status_hdlr_511()")
+        self.status_code = 511
         pass
 
     def status_hdlr_default(self, msg_header_lst):
-        logging.debug("Entering status_hdlr_default()")
+        log.debug("Entering status_hdlr_default()")
+        self.status_code = 0
         pass
 
     def header_parser_via(self, message):
         self.rport = Utils.find_1st_occurrence(r"rport=(\d+);", message)
         self.received_ip = Utils.find_1st_occurrence(r"received=(.*)$", message)
-        logging.debug(self.rport)
-        logging.debug(self.received_ip)
+        log.debug(self.rport)
+        log.debug(self.received_ip)
 
     def header_parser_path(self, message):
         self.path = Utils.find_1st_occurrence(r"^<(.*)>", message)
         self.path_tag = Utils.find_1st_occurrence(r"^;(.*)>", message)
         self.route_lst.append("{path};transport={transport}".format(path = self.path, transport = "tls"))
-        logging.debug(self.path)
-        logging.debug(self.path_tag)
-        logging.debug(self.route_lst)
+        log.debug(self.path)
+        log.debug(self.path_tag)
+        log.debug(self.route_lst)
 
     def header_parser_service_route(self, message):
         self.route_lst.append(Utils.find_1st_occurrence(r"^<(.*)>", message))
-        logging.debug(self.route_lst)
+        log.debug(self.route_lst)
 
     def header_parser_contact(self, message):
-        logging.debug("Accepted contact info at server: {}\n".format(message))
+        log.debug("Accepted contact info at server: {}\n".format(message))
 
     def header_parser_to(self, message):
         pass
@@ -515,11 +669,11 @@ class SipMessages():
 
     def header_parser_p_associated_uri(self, message):
         self.p_associated_uri = Utils.find_1st_occurrence(r"^<(.*)>", message)
-        logging.debug(self.p_associated_uri)
+        log.debug(self.p_associated_uri)
 
     def header_parser_www_auth(self, message):
         self.nonce = Utils.find_1st_occurrence(r"nonce=\"(.*?)\",", message)
-        logging.debug(self.nonce)
+        log.debug(self.nonce)
         self.server_nonce = True
 
     def header_parser_x_google_event_id(self, message):
@@ -531,9 +685,9 @@ class SipMessages():
 
 def main(args):
 
-    logging.info("========================================================================")
-    logging.info("|                    Connecting to RCS ACS server ...                  |")
-    logging.info("========================================================================\n")
+    log.info("========================================================================")
+    log.info("|                    Connecting to RCS ACS server ...                  |")
+    log.info("========================================================================\n")
 
     try:
         # CREATE SOCKET
@@ -546,34 +700,34 @@ def main(args):
         # CONNECT AND PRINT REPLY
         try:
             wrappedSocket.connect((args.realm, args.port))
-            logging.info("========================================================================")
-            logging.info("|       Connected to RCS ACS server at {}       |".format(args.realm))
-            logging.info("========================================================================\n")
+            log.info("========================================================================")
+            log.info("|       Connected to RCS ACS server at {}       |".format(args.realm))
+            log.info("========================================================================\n")
         except:
-            logging.info("========================================================================")
-            logging.info("|             Error: Cannot connect to given RCS ACS server!           |")
-            logging.info("========================================================================\n")
+            log.info("========================================================================")
+            log.info("|             Error: Cannot connect to given RCS ACS server!           |")
+            log.info("========================================================================\n")
 
             # Regardless of what happened, try to gracefully close down the socket.
             # CLOSE SOCKET CONNECTION
             wrappedSocket.close()
             exit(-1)
 
-        logging.info("========================================================================")
-        logging.info("|                        Preparing SIP Messages ...                    |")
-        logging.info("========================================================================\n")
+        log.info("========================================================================")
+        log.info("|                        Preparing SIP Messages ...                    |")
+        log.info("========================================================================\n")
         my_ip = Utils.get_ip_address_from_socket(wrappedSocket)
         rcs_messages = SipMessages(args.username, args.password, args.realm, my_ip, args.receiver, args.realm, args.imei)
 
         # Step 1. Send a SIP REGISTER message and get 401 Unauthorized response
-        logging.info("========================================================================")
-        logging.info("|                  Sending a SIP REGISTER message and                  |")
-        logging.info("|                 expecting a 401 Unauthorized response                |")
-        logging.info("========================================================================\n")
+        log.info("========================================================================")
+        log.info("|                  Sending a SIP REGISTER message and                  |")
+        log.info("|                 expecting a 401 Unauthorized response                |")
+        log.info("========================================================================\n")
         # google_fi_register_1_req  = rcs_messages.register(1, "23099613-21b1-4565-902f-0001f4b4b99d", "", "")
         reg_call_id = uuid.uuid4()
         google_fi_register_1_req = rcs_messages.register(1, reg_call_id)
-        logging.info("Sending:\n\n{}\n".format(google_fi_register_1_req))
+        log.info("Sending:\n\n{}\n".format(google_fi_register_1_req))
 
         if not args.sim_mode:
             # send message (encoded into bytes) through socket
@@ -581,7 +735,7 @@ def main(args):
 
             # receive server's response
             google_fi_register_1_resp = wrappedSocket.recv(65535)
-            logging.info("Received:\n\n{}\n".format(google_fi_register_1_resp.decode()))
+            log.info("Received:\n\n{}\n".format(google_fi_register_1_resp.decode()))
         else:
             google_fi_register_1_resp = CONST.GOOGLE_FI_REGISTER_1_RESP.encode()
 
@@ -593,14 +747,14 @@ def main(args):
             rcs_messages.calculate_response()
 
             # Step 2. Send authenticated register message
-            logging.info("========================================================================")
-            logging.info("|                Sending the 2nd SIP REGISTER message                  |")
-            logging.info("|                 with response calculated from nonce                  |")
-            logging.info("========================================================================\n")
-            logging.info("Formating 2nd REGISTER with nonce and response")
+            log.info("========================================================================")
+            log.info("|                Sending the 2nd SIP REGISTER message                  |")
+            log.info("|                 with response calculated from nonce                  |")
+            log.info("========================================================================\n")
+            log.info("Formating 2nd REGISTER with nonce and response")
 
             google_fi_register_2_req = rcs_messages.register(2, reg_call_id)
-            logging.info("Sending:\n\n{}\n".format(google_fi_register_2_req))
+            log.info("Sending:\n\n{}\n".format(google_fi_register_2_req))
 
             if not args.sim_mode:
                 # send message (encoded into bytes) through socket
@@ -608,7 +762,7 @@ def main(args):
 
                 # receive server's response
                 google_fi_register_2_resp = wrappedSocket.recv(65535)
-                logging.info("Received:\n\n{}\n".format(google_fi_register_2_resp.decode()))
+                log.info("Received:\n\n{}\n".format(google_fi_register_2_resp.decode()))
 
             else:
                 google_fi_register_2_resp = CONST.GOOGLE_FI_REGISTER_2_RESP.encode()
@@ -618,15 +772,15 @@ def main(args):
 
 
             # Step 3. send options
-            logging.info("========================================================================")
-            logging.info("|                  Sending a SIP OPTIONS message and                   |")
-            logging.info("|                   expecting a SIP 200 OK response                    |")
-            logging.info("========================================================================\n")
+            log.info("========================================================================")
+            log.info("|                  Sending a SIP OPTIONS message and                   |")
+            log.info("|                   expecting a SIP 200 OK response                    |")
+            log.info("========================================================================\n")
 
             # rcs_messages.message_parser(google_fi_register_2_resp.decode())
             conversation_call_id = uuid.uuid4()
             google_fi_options_1_req = rcs_messages.options(1, conversation_call_id)
-            logging.info("Sending:\n\n{}\n".format(google_fi_options_1_req))
+            log.info("Sending:\n\n{}\n".format(google_fi_options_1_req))
 
             if not args.sim_mode:
                 # send message (encoded into bytes) through socket
@@ -634,7 +788,7 @@ def main(args):
 
                 # receive server's response
                 google_fi_options_1_resp = wrappedSocket.recv(65535)
-                logging.info("Received:\n\n{}\n".format(google_fi_options_1_resp.decode()))
+                log.info("Received:\n\n{}\n".format(google_fi_options_1_resp.decode()))
 
             else:
                 google_fi_options_1_resp = CONST.GOOGLE_FI_OPTIONS_1_RESP.encode()
@@ -642,11 +796,48 @@ def main(args):
             # parse received message
             rcs_messages.message_parser(google_fi_options_1_resp.decode())
 
+            # expecting a 200 OK message
+            if rcs_messages.status_code == 200:
+                log.info("========================================================================")
+                log.info("|                     Received SIP 200 OK and sending                  |")
+                log.info("|                           a SIP INVITE message                       |")
+                log.info("========================================================================\n")
+
+                # Step 4. send SIP INVITE
+                log.info("========================================================================")
+                log.info("|                       Sending a SIP INVITE message                   |")
+                log.info("|                 piggybacking the first SIP text message              |")
+                log.info("========================================================================\n")
+
+                google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket))
+                log.info("Sending:\n\n{}\n".format(google_fi_invite_1_req))
+
+                if not args.sim_mode:
+                    # send message (encoded into bytes) through socket
+                    wrappedSocket.send(google_fi_invite_1_req.encode())
+
+                    # receive server's response
+                    google_fi_invite_1_resp = wrappedSocket.recv(65535)
+                    log.info("Received:\n\n{}\n".format(google_fi_invite_1_resp.decode()))
+
+                else:
+                    google_fi_invite_1_resp = CONST.GOOGLE_FI_INVITE_1_RESP.encode()
+
+                # parse received message
+                rcs_messages.message_parser(google_fi_invite_1_resp.decode())
+
+
+            else:
+                log.warning("========================================================================")
+                log.warning("|                     Error: SIP {} received!                    |".format(rcs_messages.status_code))
+                log.warning("========================================================================\n")
+
+
 
         else:
-            logging.warning("========================================================================")
-            logging.warning("|            Error: No valid nonce found in the response!              |")
-            logging.warning("========================================================================\n")
+            log.warning("========================================================================")
+            log.warning("|            Error: No valid nonce found in the response!              |")
+            log.warning("========================================================================\n")
             exit(-2)
 
     except UnboundLocalError:
@@ -657,13 +848,13 @@ def main(args):
 if __name__ == '__main__':
     try:
         args = Arguments()
-        logging.debug(args.port)
-        logging.debug(args.realm)
-        logging.debug(args.username)
-        logging.debug(args.password)
-        logging.debug(args.receiver)
-        logging.debug(args.imei)
-        logging.debug(args.sim_mode)
+        log.debug(args.port)
+        log.debug(args.realm)
+        log.debug(args.username)
+        log.debug(args.password)
+        log.debug(args.receiver)
+        log.debug(args.imei)
+        log.debug(args.sim_mode)
 
     except ArgumentsException as e:
         sys.stderr.write("\nERROR: " + str(e) + ".  Use '-h' for info.\n")

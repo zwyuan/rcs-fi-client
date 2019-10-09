@@ -6,7 +6,8 @@ Constants.py
 
 # Use python logging library for better logging control
 import logging
-LOG_FMT       = '[%(levelname)s] %(message)s'
+# LOG_FMT       = '[%(levelname)s] %(message)s'
+LOG_FMT       = "%(log_color)s[%(levelname)s]%(reset)s | %(log_color)s%(message)s%(reset)s"
 LOG_LEVEL     = logging.DEBUG
 
 # Switch for using simulation mode or not
