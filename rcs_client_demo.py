@@ -392,8 +392,10 @@ class SipMessages():
         self.ip = ip
         self.headers = SipHeaders(ip, username, receiver, p_cscf_addr, imei)
         self.status_code = 0
-        self.status_code_hldr = {   '401' : self.status_hdlr_401,
-                                    '200' : self.status_hdlr_200,
+        self.status_code_hldr = {   '200' : self.status_hdlr_200,
+                                    '401' : self.status_hdlr_401,
+                                    '403' : self.status_hdlr_403,
+                                    '480' : self.status_hdlr_480,
                                     '511' : self.status_hdlr_511,
                                     'default' : self.status_hdlr_default}
         self.nonce = ""
@@ -452,10 +454,10 @@ class SipMessages():
                             + "\r\n"
         return options_msg
 
-    def invite(self, seq, call_id, my_ip):
+    def invite(self, seq, call_id, my_ip, msg = "Hello"):
         boundary    = secrets.token_urlsafe(11)[:11]
         contrib_id  = secrets.token_hex(32)[:32]
-        invite_body = self.compose_invite_body(my_ip, boundary)
+        invite_body = self.compose_invite_body(my_ip, msg, boundary)
         invite_str  = "INVITE tel:{receiver} SIP/2.0\r\n".format(receiver = self.receiver)
         invite_msg  = invite_str + self.headers.set_call_id(call_id) \
                     + self.headers.set_c_seq(seq, "INVITE") \
@@ -499,11 +501,11 @@ class SipMessages():
         log.debug("Composed ACK message is:\n\n{}\n".format(ack_msg))
         return ack_msg
 
-    def compose_invite_body(self, my_ip, boundary="bS5DQx0W7AA"):
+    def compose_invite_body(self, my_ip, msg, boundary="bS5DQx0W7AA"):
         return "--{boundary}\r\n".format(boundary = boundary) \
                     + "{sdp_msg}\r\n".format(sdp_msg = self.compose_sdp_msg(my_ip)) \
                     + "--{boundary}\r\n".format(boundary = boundary) \
-                    + "{cpim_msg}\r\n".format(cpim_msg = self.compose_cpim_msg()) \
+                    + "{cpim_msg}\r\n".format(cpim_msg = self.compose_cpim_msg(msg)) \
                     + "--{boundary}--\r\n".format(boundary = boundary)
 
     def compose_rcs_body(self, rcs_type, content):
@@ -527,9 +529,9 @@ class SipMessages():
         log.debug("Composed RCS message is:\n\n{}\n".format(rcs_msg))
         return rcs_msg
 
-    def compose_imdn_msg(self):
+    def compose_imdn_msg(self, msg = "Ok"):
         imdn_msg_id = secrets.token_urlsafe(24)[:24]
-        rcs_msg     = self.compose_rcs_msg("text", "Ok")
+        rcs_msg     = self.compose_rcs_msg("text", msg)
         imdn_msg    = "NS: imdn <urn:ietf:params:imdn>\r\n" \
                     + "imdn.Disposition-Notification: positive-delivery, display\r\n" \
                     + "imdn.Message-ID: {msg_id}\r\n".format(msg_id = imdn_msg_id) \
@@ -541,8 +543,8 @@ class SipMessages():
         log.debug("Composed IMDN message is:\n\n{}\n".format(imdn_msg))
         return imdn_msg
 
-    def compose_cpim_msg(self):
-        imdn_msg = self.compose_imdn_msg()
+    def compose_cpim_msg(self, msg):
+        imdn_msg = self.compose_imdn_msg(msg)
         cpim_msg = "Content-Type: message/cpim\r\n" \
                     + "Content-Length: {length}\r\n".format(length = len(imdn_msg)) \
                     + "\r\n" \
@@ -601,8 +603,9 @@ class SipMessages():
                 # print(self.status_code_hldr[str(status_code)])
                 self.status_code_hldr[msg_header_lst[0].split(" ")[1]](msg_header_lst) # handle 200, 401, 511 SIP response
             except Exception as e:
+                log.error("Received a response not in defined handlers!")
                 log.error(e)
-                self.status_code_hldr['default']() # handle other cases
+                self.status_code_hldr['default'](msg_header_lst) # handle other cases
 
 
     def status_hdlr_200(self, msg_header_lst):
@@ -659,6 +662,50 @@ class SipMessages():
                 self.header_parser_content_length(l)
 
 
+    def status_hdlr_403(self, msg_header_lst):
+        log.debug("Entering status_hdlr_403()")
+        self.status_code = 403
+        for l in msg_header_lst:
+            if l.startswith("Via"):
+                self.header_parser_via(l)
+            elif l.startswith("To"):
+                self.header_parser_to(l)
+            elif l.startswith("From"):
+                self.header_parser_from(l)
+            elif l.startswith("Call-ID"):
+                self.header_parser_call_id(l)
+            elif l.startswith("CSeq"):
+                self.header_parser_c_seq(l)
+            elif l.startswith("P-Charging-Vector"):
+                self.header_parser_p_charging_vector(l)
+            elif l.startswith("X-Google-Event-Id"):
+                self.header_parser_x_google_event_id(l)
+            elif l.startswith("Content-Length"):
+                self.header_parser_content_length(l)
+
+
+    def status_hdlr_480(self, msg_header_lst):
+        log.debug("Entering status_hdlr_480()")
+        self.status_code = 480
+        for l in msg_header_lst:
+            if l.startswith("Via"):
+                self.header_parser_via(l)
+            elif l.startswith("To"):
+                self.header_parser_to(l)
+            elif l.startswith("From"):
+                self.header_parser_from(l)
+            elif l.startswith("Call-ID"):
+                self.header_parser_call_id(l)
+            elif l.startswith("CSeq"):
+                self.header_parser_c_seq(l)
+            elif l.startswith("P-Asserted-Identity"):
+                self.header_parser_p_associated_identity(l)
+            elif l.startswith("X-Google-Event-Id"):
+                self.header_parser_x_google_event_id(l)
+            elif l.startswith("Content-Length"):
+                self.header_parser_content_length(l)
+
+
     def status_hdlr_511(self, msg_header_lst):
         log.debug("Entering status_hdlr_511()")
         self.status_code = 511
@@ -666,8 +713,7 @@ class SipMessages():
 
     def status_hdlr_default(self, msg_header_lst):
         log.debug("Entering status_hdlr_default()")
-        self.status_code = 0
-        pass
+        self.status_code = self.status_code = msg_header_lst[0].split(" ")[1]
 
     def header_parser_via(self, message):
         self.rport = Utils.find_1st_occurrence(r"rport=(\d+);", message)
@@ -717,10 +763,16 @@ class SipMessages():
         self.p_associated_uri = Utils.find_1st_occurrence(r"^<(.*)>", message)
         log.debug(self.p_associated_uri)
 
+    def header_parser_p_associated_identity(self, message):
+        pass
+
     def header_parser_www_auth(self, message):
         self.nonce = Utils.find_1st_occurrence(r"nonce=\"(.*?)\",", message)
         log.debug(self.nonce)
         self.server_nonce = True
+
+    def header_parser_p_charging_vector(self, message):
+        self.info(Utils.find_1st_occurrence(r"P-Charging-Vector:\s(.*?)$", message))
 
     def header_parser_x_google_event_id(self, message):
         pass
@@ -855,7 +907,7 @@ def main(args):
                 log.info("|                 piggybacking the first SIP text message              |")
                 log.info("========================================================================\n")
 
-                google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket))
+                google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), "Greetings from your hacker!")
                 log.info("Sending:\n\n{}\n".format(google_fi_invite_1_req))
 
                 if not args.sim_mode:

@@ -95,6 +95,18 @@ Content-Length: 0\n\n
 """.replace("\n", "\r\n")
 
 
+GOOGLE_FI_REGISTER_2_RESP_403 = """SIP/2.0 403 Forbidden
+Via: SIP/2.0/TLS 1.2.3.4:20000;branch=z9hG4bK-jVgXDPqxg;keep;server-keep;rport=58799;received=11.22.33.44
+To: <tel:+11234567890>;tag=80d2a037
+From: <tel:+11234567890>;tag=tE_Qm8dfEq
+Call-ID: 393e1260-29a5-4029-b2c1-2849772faabb
+CSeq: 2 REGISTER
+P-Charging-Vector: term-ioi=us.pfi.rcs.telephony.goog
+X-Google-Event-Id: LVGGGGGAB45LCCSGGGGGSC2X2I======
+Content-Length: 0\n\n
+""".replace("\n", "\r\n")
+
+
 GOOGLE_FI_OPTIONS_1_RESP = """SIP/2.0 200 OK
 Via: SIP/2.0/TLS 1.2.3.4:20000;branch=z9hG4bgggggx0W3AA;rport=24041;received=11.22.33.44
 Contact: <sip:AAGGGGGSDGGGGGNDPGGGGGDSGGGGGUHGGGGGUZHDIGGGGG2L4GGGGGVZJGGGGG5:5060;transport=udp;uri-econt=MQGGGGGL6VUGGGGGEWNXGGGGGM36GGGGGZS2GGGGGNGGGGGICKN4GGGGGASGGGGG>;+g.oma.sip-im;+g.3gpp.iari-ref="urn%3Aurn-7%3A3gpp-application.ims.iari.rcse.im,urn%3Aurn-7%3A3gpp-application.ims.iari.rcse.ft,urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.fthttp,urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.geopush,urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.chatbot";+g.gsma.rcs.botversion="#=0.92,#=1"
@@ -104,6 +116,19 @@ Call-ID: 4ggggg43-e3eb-4111-b4a8-99gggggc11bf
 CSeq: 1 OPTIONS
 P-Asserted-Identity: <tel:+19876543210>
 X-Google-Event-Id: 4ggggg42-2798-4f23-971a-1cgggggd5476
+Content-Length: 0\n\n
+""".replace("\n", "\r\n")
+
+
+GOOGLE_FI_OPTIONS_1_RESP_480 = """SIP/2.0 480 Unregistered
+Via: SIP/2.0/TLS 1.2.3.4:20000;branch=z9hG4bKdeTXjdIuHH;rport=58536;received=11.22.33.44
+Contact: <sip:AAGGGGGSDGGGGGNDPGGGGGDSGGGGGUHGGGGGUZHDIGGGGG2L4GGGGGVZJGGGGG5:5060;transport=udp;uri-econt=WP2UYBJQLRNMF2GRLBMJ7ZQPBU7DW7WX6X2ORLK7JEK4ZFVW2EKUGRFAXFMF4OCA>;+g.3gpp.iari-ref="urn%3Aurn-7%3A3gpp-application.ims.iari.rcse.im,urn%3Aurn-7%3A3gpp-application.ims.iari.rcs.fthttp"
+To: <tel:+19876543210>;tag=04gggggbaggggga5
+From: <tel:+11234567890>;tag=8vytqI-DZj
+Call-ID: 4ggggg43-e3eb-4111-b4a8-99gggggc11bf
+CSeq: 1 OPTIONS
+P-Asserted-Identity: <tel:+19876543210>
+X-Google-Event-Id: nQqgggggLnlgggkY
 Content-Length: 0\n\n
 """.replace("\n", "\r\n")
 
