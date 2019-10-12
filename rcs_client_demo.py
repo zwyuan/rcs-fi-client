@@ -546,6 +546,11 @@ class SipMessages():
                     + "Content-Type: application/vnd.gsma.rcs-ft-http+xml; charset=utf-8\r\n" \
                     + "\r\n" \
                     + content
+        elif content_type == "geoloc_push":
+            rcs_msg = "Content-Length: {length}\r\n".format(length = len(content)) \
+                    + "Content-Type: application/vnd.gsma.rcspushlocation+xml; charset=utf-8\r\n" \
+                    + "\r\n" \
+                    + content
         else:
             rcs_msg = "Content-Length: {length}\r\n".format(length = 12) \
                     + "Content-Type: text/plain; charset=utf-8\r\n" \
@@ -572,6 +577,34 @@ class SipMessages():
 
         # log.debug("Composed RCS FT HTTP message is:\n\n{}\n".format(rcs_ft_xml))
         return rcs_ft_xml
+
+    def compose_rcs_geolocation_push_body(self):
+        rcs_geo_xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>" \
+                    + "<rcsenvelope entity=\"tel:{username}\" ".format(username = self.username) \
+                    +   "xmlns=\"urn:gsma:params:xml:ns:rcs:rcs:geolocation\" " \
+                    +   "xmlns:rpid=\"urn:ietf:params:xml:ns:pidf:rpid\" " \
+                    +   "xmlns:gml=\"http://www.opengis.net/gml\" " \
+                    +   "xmlns:gp=\"urn:ietf:params:xml:ns:pidf:geopriv10\" " \
+                    +   "xmlns:gs=\"http://www.opengis.net/pidflo/1.0\" " \
+                    +   "xmlns:dm=\"urn:ietf:params:xml:ns:pidf:data-model\">" \
+                    + "<rcspushlocation id=\"IgIQx0WCBA\" label=\"https://www.google.com/maps/place/Samueli+School+Samueli+School%2C+520+Portola+Plaza%2C+Los+Angeles%2C+CA+90095%2C+USA/\"> " \
+                    +   "<gp:geopriv>" \
+                    +       "<gp:location-info>" \
+                    +           "<gs:Circle srsName=\"urn:ogc:def:crs:EPSG::4326\">" \
+                    +               "<gml:pos>34.069820017616955 -118.44278275966646</gml:pos>" \
+                    +               "<gs:radius uom=\"urn:ogc:def:uom:EPSG::9001\">0.0</gs:radius>" \
+                    +           "</gs:Circle>" \
+                    +       "</gp:location-info>" \
+                    +       "<gp:usage-rules>" \
+                    +           "<gp:retention-expiry>2019-09-14T17:29:35</gp:retention-expiry>" \
+                    +       "</gp:usage-rules>" \
+                    +   "</gp:geopriv>" \
+                    +   "<timestamp>2019-09-14T12:29:35</timestamp>" \
+                    +   "</rcspushlocation>" \
+                    + "</rcsenvelope>"
+
+        # log.debug("Composed RCS GEO PUSH message is:\n\n{}\n".format(rcs_geo_xml))
+        return rcs_geo_xml
 
     def compose_imdn_msg(self, content = "Ok", content_type = "text"):
         imdn_msg_id = secrets.token_urlsafe(24)[:24]
@@ -973,8 +1006,10 @@ def main(args):
                 
                 # google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png", "googlelogo_color_272x92dp.png", "image/png", 5969)
                 google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://i.pinimg.com/originals/5f/72/8d/5f728ddcadd9249142996433bbdebcab.jpg", "5f728ddcadd9249142996433bbdebcab.jpg", "image/jpeg", 194137)
+                google_fi_rcs_geo_push_msg = rcs_messages.compose_rcs_geolocation_push_body()
                 # google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), "Greetings from your hacker!")
-                google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), google_fi_rcs_ft_http_msg, "ft_http")
+                # google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), google_fi_rcs_ft_http_msg, "ft_http")
+                google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), google_fi_rcs_geo_push_msg, "geoloc_push")
                 log.info("Sending:\n\n{}\n".format(google_fi_invite_1_req))
 
                 if not args.sim_mode:
