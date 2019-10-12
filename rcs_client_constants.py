@@ -162,3 +162,63 @@ a=path:msrps://216.239.36.133:443/ADCgggggDBTgggggnshJgggggai8vgggggk4pgggggGIMZ
 a=fingerprint:SHA-1 AB:C9:GG:1D:GG:GG:GG:GG:0D:F8:GG:91:GG:GG:GG:GG:8D:GG:GG:F7\n\n
 """.replace("\n", "\r\n")
 
+
+GOOGLE_FI_DISPLAY_NOTIF_RESP = """MESSAGE sip:+11234567890@1.2.3.4:20000;transport=tls SIP/2.0
+Via: SIP/2.0/TLS 216.239.36.131:443;branch=z9hGggggggggg7-1---gggggbggggg01ggggg3aggggg5eggggg;rport
+Via: SIP/2.0/UDP AAGGGGGSJGGGGGM3NGGGGGIXGGGGGJPBGGGGGPDVGGGGG3JGGGGGRJDR4GGGGGD:5060;branch=z9hGggggg89gggggbgggggd;rport;econt=F4GGGGG2ZM4GGGGGVDDGJ2GGGGGIBVCOGGGGGFEBGGGGG24BGGGGGOQSGGGGGENQ
+Max-Forwards: 74
+Record-Route: <sip:216.239.36.131:443;lr;transport=tls>
+To: <tel:+11234567890>
+From: <tel:+19876543210>;tag=b2b1ggggggggg3c7
+Call-ID: ugggggToggggglrggggg7g
+CSeq: 1 MESSAGE
+Content-Type: message/cpim
+User-Agent: IM-serv/OMA2.0
+P-Asserted-Identity: <tel:+19876543210>
+Accept-Contact: *;+g.oma.sip-im
+X-Google-Event-Id: -pRepjxAgLQICshz
+Content-Length: 475
+
+NS: imdn <urn:ietf:params:imdn>
+imdn.Message-ID: MsgggggU5FgggggtkgggggYw
+To: <tel:+11234567890>
+From: <tel:+19876543210>
+
+Content-Type: message/imdn+xml
+Content-Disposition: notification
+Content-Length: 257
+
+<?xml version="1.0" encoding="utf-8"?>
+<imdn xmlns="urn:ietf:params:xml:ns:imdn"><message-id>MgggggBXgggggyBgggggvXyg</message-id><datetime>2019-09-28T03:30:46.217Z</datetime><display-notification><status><displayed/></status></display-notification></imdn>\n\n
+""".replace("\n", "\r\n")
+
+
+GOOGLE_FI_DELIVER_NOTIF_RESP = """MESSAGE sip:+11234567890@1.2.3.4:20000;transport=tls SIP/2.0
+Via: SIP/2.0/TLS 216.239.36.131:443;branch=z9hGggggggggg7-1---gggggbggggg01ggggg3aggggg5eggggg;rport
+Via: SIP/2.0/UDP AAGGGGGSJGGGGGM3NGGGGGIXGGGGGJPBGGGGGPDVGGGGG3JGGGGGRJDR4GGGGGD:5060;branch=z9hGggggg89gggggbgggggd;rport;econt=F4GGGGG2ZM4GGGGGVDDGJ2GGGGGIBVCOGGGGGFEBGGGGG24BGGGGGOQSGGGGGENQ
+Max-Forwards: 74
+Record-Route: <sip:216.239.36.131:443;lr;transport=tls>
+To: <tel:+11234567890>
+From: <tel:+19876543210>;tag=b2b1ggggggggg3c7
+Call-ID: ugggggToggggglrggggg7g
+CSeq: 1 MESSAGE
+Content-Type: message/cpim
+User-Agent: IM-serv/OMA2.0
+P-Asserted-Identity: <tel:+19876543210>
+Accept-Contact: *;+g.oma.sip-im
+X-Google-Event-Id: -pRepjxAgLQICshz
+Content-Length: 477
+
+NS: imdn <urn:ietf:params:imdn>
+imdn.Message-ID: MsgggggU5FgggggtkgggggYw
+To: <tel:+11234567890>
+From: <tel:+19876543210>
+
+Content-Type: message/imdn+xml
+Content-Disposition: notification
+Content-Length: 259
+
+<?xml version="1.0" encoding="utf-8"?>
+<imdn xmlns="urn:ietf:params:xml:ns:imdn"><message-id>MgggggBXgggggyBgggggvXyg</message-id><datetime>2019-10-09T23:36:44.666Z</datetime><delivery-notification><status><delivered/></status></delivery-notification></imdn>\n\n
+""".replace("\n", "\r\n")
+
