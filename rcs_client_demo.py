@@ -60,6 +60,9 @@ class Utils():
         str2 = hashlib.md5("REGISTER:{}".format(uri).encode('utf-8')).hexdigest()
         return hashlib.md5("{}:{}:{}".format(str1,nonce,str2).encode('utf-8')).hexdigest()
 
+    @staticmethod
+    def get_utc_time(time_datetime):
+        return time_datetime.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
     @staticmethod
     def time_since_1900_sec():
@@ -412,6 +415,9 @@ class SipMessages():
         self.record_route_lst = []
         self.to_tag = ""
         self.from_tag = ""
+        self.delivered = False
+        self.displayed = False
+        self.needs_ok = False
 
     def register(self, seq, call_id):
         reg_str = "REGISTER sip:{realm} SIP/2.0\r\n".format(realm = self.realm)
@@ -480,8 +486,22 @@ class SipMessages():
                     + self.headers.set_content_length(len(invite_body)) \
                     + "\r\n" \
                     + "{invite_body}\r\n".format(invite_body = invite_body)
-        log.debug("Composed INVITE message is:\n\n{}\n".format(invite_msg))
+        # log.debug("Composed INVITE message is:\n\n{}\n".format(invite_msg))
         return invite_msg
+
+    def ok(self, seq, method):
+        ok_str  = "SIP/2.0 200 OK \r\n".format(receiver = self.receiver)
+        ok_msg  = ok_str + self.headers.set_via(self.from_tag, ";rport={rport};received={recv_ip}".format(rport = self.rport, recv_ip = self.received_ip)) \
+                    + self.headers.set_contact_invite() \
+                    + self.headers.set_to(self.receiver, ";{}".format(secrets.token_urlsafe(16)[:16])) \
+                    + self.headers.set_from(self.from_tag) \
+                    + self.headers.set_call_id(self.call_id) \
+                    + self.headers.set_c_seq(seq, method) \
+                    + self.headers.set_p_asserted_identity("") \
+                    + self.headers.set_x_google_event_id() \
+                    + self.headers.set_content_length(0)
+        # log.debug("Composed OK message is:\n\n{}\n".format(ok_msg))
+        return ok_msg
 
     def ack(self, seq):
         ack_str  = "ACK {contact_ack_route} SIP/2.0\r\n".format(contact_ack_route = self.contact_ack_route)
@@ -498,7 +518,7 @@ class SipMessages():
                     + self.headers.set_x_google_event_id() \
                     + self.headers.set_content_length(0)
 
-        log.debug("Composed ACK message is:\n\n{}\n".format(ack_msg))
+        # log.debug("Composed ACK message is:\n\n{}\n".format(ack_msg))
         return ack_msg
 
     def compose_invite_body(self, my_ip, msg, boundary="bS5DQx0W7AA"):
@@ -514,33 +534,57 @@ class SipMessages():
         else:
             return ""
 
-    def compose_rcs_msg(self, rcs_type, content):
-        rcs_body = self.compose_rcs_body(rcs_type, content)
-        if rcs_type == "text":
+    def compose_rcs_msg(self, content_type, content):
+        rcs_body = self.compose_rcs_body(content_type, content)
+        if content_type == "text":
             rcs_msg = "Content-Length: {length}\r\n".format(length = len(rcs_body)) \
                     + "Content-Type: text/plain; charset=utf-8\r\n" \
                     + "\r\n" \
                     + rcs_body
+        elif content_type == "ft_http":
+            rcs_msg = "Content-Length: {length}\r\n".format(length = 12) \
+                    + "Content-Type: application/vnd.gsma.rcs-ft-http+xml; charset=utf-8\r\n" \
+                    + "\r\n" \
+                    + content
         else:
             rcs_msg = "Content-Length: {length}\r\n".format(length = 12) \
                     + "Content-Type: text/plain; charset=utf-8\r\n" \
                     + "\r\n" \
                     + "Hello World!"
-        log.debug("Composed RCS message is:\n\n{}\n".format(rcs_msg))
+        # log.debug("Composed RCS message is:\n\n{}\n".format(rcs_msg))
         return rcs_msg
 
-    def compose_imdn_msg(self, msg = "Ok"):
+    def compose_rcs_ft_body(self, data_url, filename, file_type, file_size, has_thumbnail = True, tb_url = "https://cdn4.iconfinder.com/data/icons/new-google-logo-2015/400/new-google-favicon-512.png", tb_file_type = "image/png", tb_file_size = 17908):
+        rcs_ft_xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>" \
+                    + "<file xmlns=\"urn:gsma:params:xml:ns:rcs:rcs:fthttp\">" \
+                    +   "<file-info type=\"thumbnail\">" \
+                    +       "<file-size>{tb_file_size}</file-size>".format(tb_file_size = tb_file_size) \
+                    +       "<content-type>{tb_file_type}</content-type>".format(tb_file_type = tb_file_type) \
+                    +       "<data url=\"{tb_url}\" until=\"{tb_until}\"></data>".format(tb_url = tb_url, tb_until = Utils.get_utc_time(datetime.datetime.utcnow() + datetime.timedelta(days=180))) \
+                    +   "</file-info>" \
+                    +   "<file-info type=\"file\">" \
+                    +       "<file-size>{file_size}</file-size>".format(file_size = file_size) \
+                    +       "<file-name>{filename}</file-name>".format(filename = filename) \
+                    +       "<content-type>image/jpeg</content-type>" \
+                    +       "<data url=\"{data_url}\" branded-url=\"{data_url}\" until=\"{data_until}\"></data>".format(data_url = data_url, data_until = Utils.get_utc_time(datetime.datetime.utcnow() + datetime.timedelta(days=180))) \
+                    +   "</file-info>" \
+                    + "</file>"
+
+        # log.debug("Composed RCS FT HTTP message is:\n\n{}\n".format(rcs_ft_xml))
+        return rcs_ft_xml
+
+    def compose_imdn_msg(self, content = "Ok", type = "text"):
         imdn_msg_id = secrets.token_urlsafe(24)[:24]
-        rcs_msg     = self.compose_rcs_msg("text", msg)
+        rcs_msg     = self.compose_rcs_msg("text", content)
         imdn_msg    = "NS: imdn <urn:ietf:params:imdn>\r\n" \
                     + "imdn.Disposition-Notification: positive-delivery, display\r\n" \
                     + "imdn.Message-ID: {msg_id}\r\n".format(msg_id = imdn_msg_id) \
                     + "To: <sip:anonymous@anonymous.invalid>\r\n" \
                     + "From: <sip:anonymous@anonymous.invalid>\r\n" \
-                    + "DateTime: {time}\r\n".format(time = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z') \
+                    + "DateTime: {time}\r\n".format(time = Utils.get_utc_time(datetime.datetime.utcnow())) \
                     + "\r\n" \
                     + rcs_msg
-        log.debug("Composed IMDN message is:\n\n{}\n".format(imdn_msg))
+        # log.debug("Composed IMDN message is:\n\n{}\n".format(imdn_msg))
         return imdn_msg
 
     def compose_cpim_msg(self, msg):
@@ -549,7 +593,7 @@ class SipMessages():
                     + "Content-Length: {length}\r\n".format(length = len(imdn_msg)) \
                     + "\r\n" \
                     + imdn_msg
-        log.debug("Composed IMDN message is:\n\n{}\n".format(cpim_msg))
+        # log.debug("Composed CPIM message is:\n\n{}\n".format(cpim_msg))
         return cpim_msg
 
     def compose_sdp_body(self, my_ip):
@@ -574,7 +618,7 @@ class SipMessages():
                  + self.headers.set_content_length(len(sdp_body)) \
                  + "\r\n" \
                  + sdp_body
-        log.debug("Composed SDP message is:\n\n{}\n".format(sdp_msg))
+        # log.debug("Composed SDP message is:\n\n{}\n".format(sdp_msg))
         return sdp_msg
 
 
@@ -586,7 +630,7 @@ class SipMessages():
         msg_split = message.split("\r\n\r\n")
         msg_header = msg_split[0]
         if len(msg_split) > 1:
-            msg_body = msg_split[1]
+            msg_body = msg_split[1:]
 
         log.debug("Split message header:\n\n{}\n".format(msg_header))
         log.debug("Split message body:\n\n{}\n".format(msg_body))
@@ -606,6 +650,16 @@ class SipMessages():
                 log.error("Received a response not in defined handlers!")
                 log.error(e)
                 self.status_code_hldr['default'](msg_header_lst) # handle other cases
+        elif (msg_header_lst[0].startswith("MESSAGE")):
+            if "status><delivered" in message:
+                self.delivered = True
+                log.warning("Received message deliver notification")
+            elif "status><displayed" in message:
+                self.displayed = True
+                log.warning("Received message display notification")
+        elif (msg_header_lst[0].startswith("OPTIONS")):
+            self.needs_ok = True
+            log.warning("Received message display notification")
 
 
     def status_hdlr_200(self, msg_header_lst):
@@ -830,6 +884,7 @@ def main(args):
         if not args.sim_mode:
             # send message (encoded into bytes) through socket
             wrappedSocket.send(google_fi_register_1_req.encode())
+            rcs_messages.status_code = 0
 
             # receive server's response
             google_fi_register_1_resp = wrappedSocket.recv(65535)
@@ -857,6 +912,7 @@ def main(args):
             if not args.sim_mode:
                 # send message (encoded into bytes) through socket
                 wrappedSocket.send(google_fi_register_2_req.encode())
+                rcs_messages.status_code = 0
 
                 # receive server's response
                 google_fi_register_2_resp = wrappedSocket.recv(65535)
@@ -883,6 +939,9 @@ def main(args):
             if not args.sim_mode:
                 # send message (encoded into bytes) through socket
                 wrappedSocket.send(google_fi_options_1_req.encode())
+                rcs_messages.status_code = 0
+                rcs_messages.delivered = False
+                rcs_messages.displayed = False
 
                 # receive server's response
                 google_fi_options_1_resp = wrappedSocket.recv(65535)
@@ -893,6 +952,11 @@ def main(args):
 
             # parse received message
             rcs_messages.message_parser(google_fi_options_1_resp.decode())
+
+            while rcs_messages.status_code == 0:
+                google_fi_options_1_resp = wrappedSocket.recv(65535)
+                log.info("Received:\n\n{}\n".format(google_fi_options_1_resp.decode()))
+                rcs_messages.message_parser(google_fi_options_1_resp.decode())
 
             # expecting a 200 OK message
             if rcs_messages.status_code == 200:
@@ -913,6 +977,9 @@ def main(args):
                 if not args.sim_mode:
                     # send message (encoded into bytes) through socket
                     wrappedSocket.send(google_fi_invite_1_req.encode())
+                    rcs_messages.status_code = 0
+                    rcs_messages.delivered = False
+                    rcs_messages.displayed = False
 
                     # receive server's response
                     google_fi_invite_1_resp = wrappedSocket.recv(65535)
@@ -924,6 +991,20 @@ def main(args):
                 # parse received message
                 rcs_messages.message_parser(google_fi_invite_1_resp.decode())
 
+                while rcs_messages.status_code == 0:
+                    if rcs_messages.needs_ok == True:
+                        google_fi_ok_1_req = rcs_messages.ok(1, "OPTIONS")
+                        log.info("Sending:\n\n{}\n".format(google_fi_ok_1_req))
+                        rcs_messages.status_code = 0
+                        rcs_messages.delivered = False
+                        rcs_messages.displayed = False
+                        rcs_messages.needs_ok = False
+                        google_fi_ok_1_resp = wrappedSocket.recv(65535)
+                        log.info("Received:\n\n{}\n".format(google_fi_ok_1_resp.decode()))
+                    else:
+                        google_fi_invite_1_resp = wrappedSocket.recv(65535)
+                        log.info("Received:\n\n{}\n".format(google_fi_options_1_resp.decode()))
+                        rcs_messages.message_parser(google_fi_invite_1_resp.decode())
 
                 # expecting a 200 OK message
                 if rcs_messages.status_code == 200:
@@ -939,8 +1020,98 @@ def main(args):
                     if not args.sim_mode:
                         # send message (encoded into bytes) through socket
                         wrappedSocket.send(google_fi_ack_1_req.encode())
+                        rcs_messages.status_code = 0
+                        rcs_messages.delivered = False
+                        rcs_messages.displayed = False
 
-                    # do not expect further Ack on ack
+                        # do not expect further Ack on ack
+                        try:
+                            google_fi_ack_1_resp = wrappedSocket.recv(65535)
+                            log.info("Received:\n\n{}\n".format(google_fi_ack_1_resp.decode()))
+                            while rcs_messages.status_code == 0:
+                                if rcs_messages.needs_ok == True:
+                                    google_fi_ok_1_req = rcs_messages.ok(1, "OPTIONS")
+                                    log.info("Sending:\n\n{}\n".format(google_fi_ok_1_req))
+                                    rcs_messages.status_code = 0
+                                    rcs_messages.delivered = False
+                                    rcs_messages.displayed = False
+                                    rcs_messages.needs_ok = False
+                                    google_fi_ok_1_resp = wrappedSocket.recv(65535)
+                                    log.info("Received:\n\n{}\n".format(google_fi_ok_1_resp.decode()))
+                                else:
+                                    google_fi_ack_1_resp = wrappedSocket.recv(65535)
+                                    log.info("Received:\n\n{}\n".format(google_fi_ack_1_resp.decode()))
+                                    rcs_messages.message_parser(google_fi_ack_1_resp.decode())
+                        except:
+                            pass
+
+                    # Step 6. sending a 2nd SIP message
+                    log.info("========================================================================")
+                    log.info("|                   Sending a second SIP text message                  |")
+                    log.info("========================================================================\n")
+                    google_fi_imdn_2_text_req = rcs_messages.compose_imdn_msg("And this is my 2nd test message", "text")
+                    log.info("Sending:\n\n{}\n".format(google_fi_imdn_2_text_req))
+
+                    if not args.sim_mode:
+                        # send message (encoded into bytes) through socket
+                        wrappedSocket.send(google_fi_imdn_2_text_req.encode())
+                        rcs_messages.status_code = 0
+                        rcs_messages.delivered = False
+                        rcs_messages.displayed = False
+
+                        # do not expect further ack
+                        try:
+                            google_fi_imdn_2_text_resp = wrappedSocket.recv(65535)
+                            log.info("Received:\n\n{}\n".format(google_fi_imdn_2_text_resp.decode()))
+                            while rcs_messages.status_code == 0:
+                                if rcs_messages.needs_ok == True:
+                                    google_fi_ok_1_req = rcs_messages.ok(1, "OPTIONS")
+                                    log.info("Sending:\n\n{}\n".format(google_fi_ok_1_req))
+                                    rcs_messages.status_code = 0
+                                    rcs_messages.delivered = False
+                                    rcs_messages.displayed = False
+                                    rcs_messages.needs_ok = False
+                                    google_fi_ok_1_resp = wrappedSocket.recv(65535)
+                                    log.info("Received:\n\n{}\n".format(google_fi_ok_1_resp.decode()))
+                                else:
+                                    google_fi_imdn_2_text_resp = wrappedSocket.recv(65535)
+                                    log.info("Received:\n\n{}\n".format(google_fi_imdn_2_text_resp.decode()))
+                                    rcs_messages.message_parser(google_fi_imdn_2_text_resp.decode())
+
+                        except:
+                            pass
+
+
+                    # Step 7. sending a SIP FT HTTP message for file
+                    log.info("========================================================================")
+                    log.info("|                   Sending a FT HTTP message for file                 |")
+                    log.info("========================================================================\n")
+                    google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png", "googlelogo_color_272x92dp.png", "image/png", 5969)                  
+                    google_fi_imdn_3_ft_req = rcs_messages.compose_imdn_msg(google_fi_rcs_ft_http_msg, "ft_http")
+                    log.info("Sending:\n\n{}\n".format(google_fi_imdn_3_ft_req))
+
+                    if not args.sim_mode:
+                        # send message (encoded into bytes) through socket
+                        wrappedSocket.send(google_fi_imdn_3_ft_req.encode())
+                        rcs_messages.status_code = 0
+                        rcs_messages.delivered = False
+                        rcs_messages.displayed = False
+                        # do not expect further ack
+                        try:
+                            google_fi_imdn_3_ft_resp = wrappedSocket.recv(65535)
+                            log.info("Received:\n\n{}\n".format(google_fi_imdn_3_ft_resp.decode()))
+                            while rcs_messages.status_code == 0:
+                                google_fi_imdn_3_ft_resp = wrappedSocket.recv(65535)
+                                log.info("Received:\n\n{}\n".format(google_fi_imdn_3_ft_resp.decode()))
+                                rcs_messages.message_parser(google_fi_imdn_3_ft_resp.decode())
+                        except:
+                            pass
+
+                else:
+                    log.warning("========================================================================")
+                    log.warning("|                     Error: SIP {} received!                    |".format(rcs_messages.status_code))
+                    log.warning("========================================================================\n")
+
             else:
                 log.warning("========================================================================")
                 log.warning("|                     Error: SIP {} received!                    |".format(rcs_messages.status_code))
