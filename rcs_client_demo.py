@@ -460,10 +460,10 @@ class SipMessages():
                             + "\r\n"
         return options_msg
 
-    def invite(self, seq, call_id, my_ip, msg = "Hello"):
+    def invite(self, seq, call_id, my_ip, msg = "Hello", content_type = "text"):
         boundary    = secrets.token_urlsafe(11)[:11]
         contrib_id  = secrets.token_hex(32)[:32]
-        invite_body = self.compose_invite_body(my_ip, msg, boundary)
+        invite_body = self.compose_invite_body(my_ip, msg, boundary, content_type)
         invite_str  = "INVITE tel:{receiver} SIP/2.0\r\n".format(receiver = self.receiver)
         invite_msg  = invite_str + self.headers.set_call_id(call_id) \
                     + self.headers.set_c_seq(seq, "INVITE") \
@@ -521,11 +521,11 @@ class SipMessages():
         # log.debug("Composed ACK message is:\n\n{}\n".format(ack_msg))
         return ack_msg
 
-    def compose_invite_body(self, my_ip, msg, boundary="bS5DQx0W7AA"):
+    def compose_invite_body(self, my_ip, msg, boundary="bS5DQx0W7AA", content_type = "text"):
         return "--{boundary}\r\n".format(boundary = boundary) \
                     + "{sdp_msg}\r\n".format(sdp_msg = self.compose_sdp_msg(my_ip)) \
                     + "--{boundary}\r\n".format(boundary = boundary) \
-                    + "{cpim_msg}\r\n".format(cpim_msg = self.compose_cpim_msg(msg)) \
+                    + "{cpim_msg}\r\n".format(cpim_msg = self.compose_cpim_msg(msg, content_type)) \
                     + "--{boundary}--\r\n".format(boundary = boundary)
 
     def compose_rcs_body(self, rcs_type, content):
@@ -542,7 +542,7 @@ class SipMessages():
                     + "\r\n" \
                     + rcs_body
         elif content_type == "ft_http":
-            rcs_msg = "Content-Length: {length}\r\n".format(length = 12) \
+            rcs_msg = "Content-Length: {length}\r\n".format(length = len(content)) \
                     + "Content-Type: application/vnd.gsma.rcs-ft-http+xml; charset=utf-8\r\n" \
                     + "\r\n" \
                     + content
@@ -573,9 +573,9 @@ class SipMessages():
         # log.debug("Composed RCS FT HTTP message is:\n\n{}\n".format(rcs_ft_xml))
         return rcs_ft_xml
 
-    def compose_imdn_msg(self, content = "Ok", type = "text"):
+    def compose_imdn_msg(self, content = "Ok", content_type = "text"):
         imdn_msg_id = secrets.token_urlsafe(24)[:24]
-        rcs_msg     = self.compose_rcs_msg("text", content)
+        rcs_msg     = self.compose_rcs_msg(content_type, content)
         imdn_msg    = "NS: imdn <urn:ietf:params:imdn>\r\n" \
                     + "imdn.Disposition-Notification: positive-delivery, display\r\n" \
                     + "imdn.Message-ID: {msg_id}\r\n".format(msg_id = imdn_msg_id) \
@@ -587,8 +587,8 @@ class SipMessages():
         # log.debug("Composed IMDN message is:\n\n{}\n".format(imdn_msg))
         return imdn_msg
 
-    def compose_cpim_msg(self, msg):
-        imdn_msg = self.compose_imdn_msg(msg)
+    def compose_cpim_msg(self, msg, content_type = "text"):
+        imdn_msg = self.compose_imdn_msg(msg, content_type)
         cpim_msg = "Content-Type: message/cpim\r\n" \
                     + "Content-Length: {length}\r\n".format(length = len(imdn_msg)) \
                     + "\r\n" \
@@ -970,8 +970,11 @@ def main(args):
                 log.info("|                       Sending a SIP INVITE message                   |")
                 log.info("|                 piggybacking the first SIP text message              |")
                 log.info("========================================================================\n")
-
-                google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), "Greetings from your hacker!")
+                
+                # google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png", "googlelogo_color_272x92dp.png", "image/png", 5969)
+                google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://i.pinimg.com/originals/5f/72/8d/5f728ddcadd9249142996433bbdebcab.jpg", "5f728ddcadd9249142996433bbdebcab.jpg", "image/jpeg", 194137)
+                # google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), "Greetings from your hacker!")
+                google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), google_fi_rcs_ft_http_msg, "ft_http")
                 log.info("Sending:\n\n{}\n".format(google_fi_invite_1_req))
 
                 if not args.sim_mode:
@@ -1086,7 +1089,7 @@ def main(args):
                     log.info("========================================================================")
                     log.info("|                   Sending a FT HTTP message for file                 |")
                     log.info("========================================================================\n")
-                    google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png", "googlelogo_color_272x92dp.png", "image/png", 5969)                  
+                    google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png", "googlelogo_color_272x92dp.png", "image/png", 5969)
                     google_fi_imdn_3_ft_req = rcs_messages.compose_imdn_msg(google_fi_rcs_ft_http_msg, "ft_http")
                     log.info("Sending:\n\n{}\n".format(google_fi_imdn_3_ft_req))
 
