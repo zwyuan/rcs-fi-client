@@ -183,6 +183,50 @@ class Arguments():
                                  default=False,
                                  help='Use simulation mode (use pre-recorded responses instead of communicating with real server)')
 
+class MsrpSession():
+    def __init__(self, to_path, from_path):
+        self.to_path = to_path
+        self.from_path = from_path
+        self.msrp_sess_id = ""
+        self.imdn_msg_id = ""
+        self.failure_report = "yes"
+        self.success_report = "no"
+        self.content_type = "message/cpim"
+
+    def init_send(self):
+        self.msrp_sess_id = secrets.token_hex(16)[:16]
+        self.imdn_msg_id = secrets.token_urlsafe(24)[:24]
+        msrp_msg = "MSRP " + self.msrp_sess_id + " SEND\r\n" \
+                    + "To-Path: {to_path}\r\n".format(to_path = self.to_path) \
+                    + "From-Path: {from_path}\r\n".format(from_path = self.from_path) \
+                    + "Message-ID: {message_id}\r\n".format(message_id = self.imdn_msg_id) \
+                    + "Failure-Report: {failure_report}\r\n".format(failure_report = self.failure_report) \
+                    + "Success-Report: {success_report}\r\n".format(success_report = self.success_report) \
+                    + "Byte-Range: 1-0/0\r\n" \
+                    + "-------{msrp_sess_id}$\r\n".format(msrp_sess_id = self.msrp_sess_id)
+        return msrp_msg
+
+    def send(self, imdn_msg_id, imdn_msg_len):
+        self.msrp_sess_id = secrets.token_hex(16)[:16]
+        # self.imdn_msg_id = secrets.token_urlsafe(24)[:24]
+        msrp_msg = "MSRP " + self.msrp_sess_id + " SEND\r\n" \
+                    + "To-Path: {to_path}\r\n".format(to_path = self.to_path) \
+                    + "From-Path: {from_path}\r\n".format(from_path = self.from_path) \
+                    + "Message-ID: {message_id}\r\n".format(message_id = imdn_msg_id) \
+                    + "Failure-Report: {failure_report}\r\n".format(failure_report = self.failure_report) \
+                    + "Success-Report: {success_report}\r\n".format(success_report = self.success_report) \
+                    + "Byte-Range: 1-{byte_range}/{byte_range}\r\n".format(byte_range = imdn_msg_len) \
+                    + "Content-Type: {content_type}\r\n".format(content_type = self.content_type) \
+                    + "\r\n"
+        return (msrp_msg, self.msrp_sess_id)
+
+    def ok(self, msrp_id):
+        msrp_msg = "MSRP " + msrp_id + " 200 OK\r\n" \
+                    + "To-Path: {to_path}\r\n".format(to_path = self.to_path) \
+                    + "From-Path: {from_path}\r\n".format(from_path = self.from_path) \
+                    + "-------:{msrp_id}$\r\n".format(message_id = msrp_id)
+        return msrp_msg
+
 
 class SipHeaders():
 
@@ -418,6 +462,11 @@ class SipMessages():
         self.delivered = False
         self.displayed = False
         self.needs_ok = False
+        self.msrp_srv_ip = ""
+        self.msrp_to_path = ""
+        self.msrp_from_path = ""
+        self.msrp_session_ready = False
+        self.ack_content_type = ""
 
     def register(self, seq, call_id):
         reg_str = "REGISTER sip:{realm} SIP/2.0\r\n".format(realm = self.realm)
@@ -618,10 +667,10 @@ class SipMessages():
                     + "\r\n" \
                     + rcs_msg
         # log.debug("Composed IMDN message is:\n\n{}\n".format(imdn_msg))
-        return imdn_msg
+        return (imdn_msg, imdn_msg_id)
 
     def compose_cpim_msg(self, msg, content_type = "text"):
-        imdn_msg = self.compose_imdn_msg(msg, content_type)
+        imdn_msg, _ = self.compose_imdn_msg(msg, content_type)
         cpim_msg = "Content-Type: message/cpim\r\n" \
                     + "Content-Length: {length}\r\n".format(length = len(imdn_msg)) \
                     + "\r\n" \
@@ -630,19 +679,21 @@ class SipMessages():
         return cpim_msg
 
     def compose_sdp_body(self, my_ip):
+        msrp_to_path_token = secrets.token_hex(32)[:32]
         sdp_body = "v=0\r\n" \
                 + "o={username} {time} {time} IN IP4 {ip}\r\n".format(username = self.username, time = Utils.time_since_1900_sec(), ip = my_ip) \
                 + "s=-\r\n" \
                 + "c=IN IP4 {ip}\r\n".format(ip = my_ip) \
                 + "t=0 0\r\n" \
                 + "m=message 9 TCP/TLS/MSRP *\r\n" \
-                + "a=path:msrps://{ip}:9/{token};tcp\r\n".format(ip = my_ip, token = secrets.token_hex(32)[:32]) \
+                + "a=path:msrps://{ip}:9/{token};tcp\r\n".format(ip = my_ip, token = msrp_to_path_token) \
                 + "a=fingerprint:SHA-1 {fingerprint}\r\n".format(fingerprint = "76:7C:2B:DA:26:8F:CB:25:D6:98:C3:EE:09:66:88:84:C7:BB:82:38") \
                 + "a=connection:new\r\n" \
                 + "a=setup:active\r\n" \
                 + "a=accept-types:{accept_types}\r\n".format(accept_types = "message/cpim application/im-iscomposing+xml") \
                 + "a=accept-wrapped-types:{accept_wrapped_types}\r\n".format(accept_wrapped_types = "text/plain application/vnd.gsma.rcs-ft-http+xml message/imdn+xml application/vnd.gsma.rcspushlocation+xml") \
                 + "a=sendrecv\r\n"
+        self.msrp_from_path = "msrps://{ip}:9/{token};tcp".format(ip = my_ip, token = msrp_to_path_token)
         return sdp_body
 
     def compose_sdp_msg(self, my_ip):
@@ -694,6 +745,22 @@ class SipMessages():
             self.needs_ok = True
             log.warning("Received message display notification")
 
+        if msg_body != "":
+            msg_body_lst = msg_body[0].split("\r\n")
+            self.sip_msg_body_hdlr(msg_body_lst)
+
+    def sip_msg_body_hdlr(self, msg_body_lst):
+        if self.ack_content_type == "sdp":
+            for l in msg_body_lst:
+                if l.startswith("c="):
+                    self.msrp_srv_ip = Utils.find_1st_occurrence(r".*\s(.*)$", l)
+                    log.debug("msrp_srv_ip:\n{}\n".format(self.msrp_srv_ip))
+                elif l.startswith("a=path:"):
+                    self.msrp_to_path = l[7:]
+                    log.debug("msrp_to_path:\n{}\n".format(self.msrp_to_path))
+        self.ack_content_type == ""
+        if self.msrp_srv_ip != "" and self.msrp_to_path != "":
+            self.msrp_session_ready = True
 
     def status_hdlr_200(self, msg_header_lst):
         log.debug("Entering status_hdlr_200()")
@@ -719,6 +786,8 @@ class SipMessages():
                 self.header_parser_contact(l)
             elif l.startswith("CSeq"):
                 self.header_parser_c_seq(l)
+            elif l.startswith("Content-Type"):
+                self.header_parser_content_type(l)
             elif l.startswith("P-Associated-URI"):
                 self.header_parser_p_associated_uri(l)
             elif l.startswith("X-Google-Event-Id"):
@@ -846,6 +915,10 @@ class SipMessages():
     def header_parser_c_seq(self, message):
         pass
 
+    def header_parser_content_type(self, message):
+        self.ack_content_type = Utils.find_1st_occurrence(r"/(.*?)$", message)
+        log.debug(self.ack_content_type)
+
     def header_parser_p_associated_uri(self, message):
         self.p_associated_uri = Utils.find_1st_occurrence(r"^<(.*)>", message)
         log.debug(self.p_associated_uri)
@@ -877,7 +950,7 @@ def main(args):
     try:
         # CREATE SOCKET
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(30)
+        sock.settimeout(10)
 
         # WRAP SOCKET
         wrappedSocket = ssl.wrap_socket(sock, ssl_version=ssl.PROTOCOL_TLS, ciphers="ALL") # ssl_version=ssl.PROTOCOL_TLSv1_2
@@ -1004,12 +1077,9 @@ def main(args):
                 log.info("|                 piggybacking the first SIP text message              |")
                 log.info("========================================================================\n")
                 
-                # google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png", "googlelogo_color_272x92dp.png", "image/png", 5969)
-                google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://i.pinimg.com/originals/5f/72/8d/5f728ddcadd9249142996433bbdebcab.jpg", "5f728ddcadd9249142996433bbdebcab.jpg", "image/jpeg", 194137)
-                google_fi_rcs_geo_push_msg = rcs_messages.compose_rcs_geolocation_push_body()
-                # google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), "Greetings from your hacker!")
+                google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), "Greetings from your hacker!", "text")
                 # google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), google_fi_rcs_ft_http_msg, "ft_http")
-                google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), google_fi_rcs_geo_push_msg, "geoloc_push")
+                # google_fi_invite_1_req = rcs_messages.invite(1, conversation_call_id, Utils.get_ip_address_from_socket(wrappedSocket), google_fi_rcs_geo_push_msg, "geoloc_push")
                 log.info("Sending:\n\n{}\n".format(google_fi_invite_1_req))
 
                 if not args.sim_mode:
@@ -1045,7 +1115,7 @@ def main(args):
                         rcs_messages.message_parser(google_fi_invite_1_resp.decode())
 
                 # expecting a 200 OK message
-                if rcs_messages.status_code == 200:
+                if rcs_messages.status_code == 200 and rcs_messages.msrp_session_ready:
                     # Step 5. send SIP ACK
                     log.info("========================================================================")
                     log.info("|                        Received SIP 200 OK and                       |")
@@ -1085,36 +1155,74 @@ def main(args):
 
                     # Step 6. sending a 2nd SIP message
                     log.info("========================================================================")
-                    log.info("|                   Sending a second SIP text message                  |")
+                    log.info("|                     Switching to MSRP server and                     |")
+                    log.info("|                     send following SIP messages                      |")
                     log.info("========================================================================\n")
-                    google_fi_imdn_2_text_req = rcs_messages.compose_imdn_msg("And this is my 2nd test message", "text")
-                    log.info("Sending:\n\n{}\n".format(google_fi_imdn_2_text_req))
+
+                    # CREATE SOCKET
+                    sock_msrp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock_msrp.settimeout(30)
+
+                    # WRAP SOCKET
+                    wrappedSocket_msrp = ssl.wrap_socket(sock_msrp, ssl_version=ssl.PROTOCOL_TLS, ciphers="ALL") # ssl_version=ssl.PROTOCOL_TLSv1_2
+
+                    # CONNECT AND PRINT REPLY
+                    try:
+                        wrappedSocket_msrp.connect((rcs_messages.msrp_srv_ip, args.port))
+                        log.info("========================================================================")
+                        log.info("|       Connected to RCS MSRP server at {}       |".format(rcs_messages.msrp_srv_ip))
+                        log.info("========================================================================\n")
+                    except:
+                        log.info("========================================================================")
+                        log.info("|            Error: Cannot connect to given RCS MSRP server!           |")
+                        log.info("========================================================================\n")
+
+                        # Regardless of what happened, try to gracefully close down the socket.
+                        # CLOSE SOCKET CONNECTION
+                        wrappedSocket_msrp.close()
+                        exit(-1)
+
+
+                    msrp_session = MsrpSession(rcs_messages.msrp_to_path, rcs_messages.msrp_from_path)
+
+                    # Step 7. establishing an MSRP session
+                    log.info("========================================================================")
+                    log.info("|                    Establishing an MSRP session                      |")
+                    log.info("========================================================================\n")
+
+                    if not args.sim_mode:
+                        msrp_init_msg_req = msrp_session.init_send()
+                        log.info("Sending:\n\n{}\n".format(msrp_init_msg_req))
+                        wrappedSocket_msrp.send(msrp_init_msg_req.encode())
+
+                        try:
+                            msrp_init_msg_resp = wrappedSocket_msrp.recv(65535)
+                            log.info("Received:\n\n{}\n".format(msrp_init_msg_resp.decode()))
+
+                        except:
+                            pass
+
+                    log.info("========================================================================")
+                    log.info("|                  Sending 2nd SIP message (text)                      |")
+                    log.info("========================================================================\n")
+
+                    google_fi_imdn_1_req, imdn_msg_id = rcs_messages.compose_imdn_msg("And this is my 2nd test message", "text")
+                    google_fi_msrp_1_send, msrp_id = msrp_session.send(imdn_msg_id, len(google_fi_imdn_1_req))
+                    google_fi_msrp_1_end = "\r\n-------{id}$\r\n".format(id = msrp_id)
 
                     if not args.sim_mode:
                         # send message (encoded into bytes) through socket
-                        wrappedSocket.send(google_fi_imdn_2_text_req.encode())
-                        rcs_messages.status_code = 0
-                        rcs_messages.delivered = False
-                        rcs_messages.displayed = False
+                        log.info("Sending:\n\n{}\n".format(google_fi_msrp_1_send))
+                        wrappedSocket_msrp.send(google_fi_msrp_1_send.encode())
+                        log.info("Sending:\n\n{}\n".format(google_fi_imdn_1_req))
+                        wrappedSocket_msrp.send(google_fi_imdn_1_req.encode())
+                        log.info("Sending:\n\n{}\n".format(google_fi_msrp_1_end))
+                        wrappedSocket_msrp.send(google_fi_msrp_1_end.encode())
 
                         # do not expect further ack
                         try:
-                            google_fi_imdn_2_text_resp = wrappedSocket.recv(65535)
-                            log.info("Received:\n\n{}\n".format(google_fi_imdn_2_text_resp.decode()))
-                            while rcs_messages.status_code == 0:
-                                if rcs_messages.needs_ok == True:
-                                    google_fi_ok_1_req = rcs_messages.ok(1, "OPTIONS")
-                                    log.info("Sending:\n\n{}\n".format(google_fi_ok_1_req))
-                                    rcs_messages.status_code = 0
-                                    rcs_messages.delivered = False
-                                    rcs_messages.displayed = False
-                                    rcs_messages.needs_ok = False
-                                    google_fi_ok_1_resp = wrappedSocket.recv(65535)
-                                    log.info("Received:\n\n{}\n".format(google_fi_ok_1_resp.decode()))
-                                else:
-                                    google_fi_imdn_2_text_resp = wrappedSocket.recv(65535)
-                                    log.info("Received:\n\n{}\n".format(google_fi_imdn_2_text_resp.decode()))
-                                    rcs_messages.message_parser(google_fi_imdn_2_text_resp.decode())
+                            google_fi_imdn_1_resp = wrappedSocket_msrp.recv(65535)
+                            log.info("Received:\n\n{}\n".format(google_fi_imdn_1_resp.decode()))
 
                         except:
                             pass
@@ -1122,26 +1230,54 @@ def main(args):
 
                     # Step 7. sending a SIP FT HTTP message for file
                     log.info("========================================================================")
-                    log.info("|                   Sending a FT HTTP message for file                 |")
+                    log.info("|               Sending 3rd SIP message (FT HTTP file)                 |")
                     log.info("========================================================================\n")
-                    google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png", "googlelogo_color_272x92dp.png", "image/png", 5969)
-                    google_fi_imdn_3_ft_req = rcs_messages.compose_imdn_msg(google_fi_rcs_ft_http_msg, "ft_http")
-                    log.info("Sending:\n\n{}\n".format(google_fi_imdn_3_ft_req))
+                    # google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png", "googlelogo_color_272x92dp.png", "image/png", 5969)
+                    google_fi_rcs_ft_http_msg = rcs_messages.compose_rcs_ft_body("https://i.pinimg.com/originals/5f/72/8d/5f728ddcadd9249142996433bbdebcab.jpg", "5f728ddcadd9249142996433bbdebcab.jpg", "image/jpeg", 194137)
+
+                    google_fi_imdn_2_req, imdn_msg_id = rcs_messages.compose_imdn_msg(google_fi_rcs_ft_http_msg, "ft_http")
+                    google_fi_msrp_2_send, msrp_id = msrp_session.send(imdn_msg_id, len(google_fi_imdn_1_req))
+                    google_fi_msrp_2_end = "\r\n-------{id}$\r\n".format(id = msrp_id)
 
                     if not args.sim_mode:
                         # send message (encoded into bytes) through socket
-                        wrappedSocket.send(google_fi_imdn_3_ft_req.encode())
-                        rcs_messages.status_code = 0
-                        rcs_messages.delivered = False
-                        rcs_messages.displayed = False
-                        # do not expect further ack
+                        log.info("Sending:\n\n{}\n".format(google_fi_msrp_2_send))
+                        wrappedSocket_msrp.send(google_fi_msrp_2_send.encode())
+                        log.info("Sending:\n\n{}\n".format(google_fi_imdn_2_req))
+                        wrappedSocket_msrp.send(google_fi_imdn_2_req.encode())
+                        log.info("Sending:\n\n{}\n".format(google_fi_msrp_2_end))
+                        wrappedSocket_msrp.send(google_fi_msrp_2_end.encode())
+
                         try:
-                            google_fi_imdn_3_ft_resp = wrappedSocket.recv(65535)
-                            log.info("Received:\n\n{}\n".format(google_fi_imdn_3_ft_resp.decode()))
-                            while rcs_messages.status_code == 0:
-                                google_fi_imdn_3_ft_resp = wrappedSocket.recv(65535)
-                                log.info("Received:\n\n{}\n".format(google_fi_imdn_3_ft_resp.decode()))
-                                rcs_messages.message_parser(google_fi_imdn_3_ft_resp.decode())
+                            google_fi_imdn_2_resp = wrappedSocket_msrp.recv(65535)
+                            log.info("Received:\n\n{}\n".format(google_fi_imdn_2_resp.decode()))
+
+                        except:
+                            pass
+
+                    # Step 8. sending a SIP FT HTTP message for file
+                    log.info("========================================================================")
+                    log.info("|               Sending 4th SIP message (Location Push)                |")
+                    log.info("========================================================================\n")
+                    google_fi_rcs_geo_push_msg = rcs_messages.compose_rcs_geolocation_push_body()
+
+                    google_fi_imdn_3_req, imdn_msg_id = rcs_messages.compose_imdn_msg(google_fi_rcs_geo_push_msg, "geoloc_push")
+                    google_fi_msrp_3_send, msrp_id = msrp_session.send(imdn_msg_id, len(google_fi_imdn_1_req))
+                    google_fi_msrp_3_end = "\r\n-------{id}$\r\n".format(id = msrp_id)
+
+                    if not args.sim_mode:
+                        # send message (encoded into bytes) through socket
+                        log.info("Sending:\n\n{}\n".format(google_fi_msrp_3_send))
+                        wrappedSocket_msrp.send(google_fi_msrp_3_send.encode())
+                        log.info("Sending:\n\n{}\n".format(google_fi_imdn_3_req))
+                        wrappedSocket_msrp.send(google_fi_imdn_3_req.encode())
+                        log.info("Sending:\n\n{}\n".format(google_fi_msrp_3_end))
+                        wrappedSocket_msrp.send(google_fi_msrp_3_end.encode())
+
+                        try:
+                            google_fi_imdn_3_resp = wrappedSocket_msrp.recv(65535)
+                            log.info("Received:\n\n{}\n".format(google_fi_imdn_3_resp.decode()))
+
                         except:
                             pass
 
